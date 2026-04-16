@@ -1,0 +1,69 @@
+# ============================================================
+# docker-compose.yml
+# Experiencia 2.2 - Orquestacion de backend + frontend
+#
+# Levanta TODO el stack con un solo comando:
+#   docker compose up --build
+# ============================================================
+
+services:
+
+  # -------------------------------
+  # Backend Node.js / Express
+  # -------------------------------
+  backend:
+    build: ./backend            # ruta al Dockerfile del backend
+    image: tareas-backend:1.0   # nombre y tag de la imagen resultante
+    container_name: tareas-backend
+    ports:
+      - "3000:3000"             # host:contenedor (acceso desde el navegador)
+    environment:
+      - PORT=3000
+      - MENSAJE_BIENVENIDA=API de Tareas corriendo en Docker
+    volumes:
+      - datos-tareas:/data      # volumen nombrado para persistencia
+    networks:
+      - red-devops
+    restart: unless-stopped
+
+  # -------------------------------
+  # Frontend Angular
+  # -------------------------------
+  frontend:
+    build: ./frontend
+    image: tareas-frontend:1.0
+    container_name: tareas-frontend
+    ports:
+      - "4200:4200"
+    volumes:
+      # Bind mount: mapea la carpeta local del host al contenedor
+      # para tener hot-reload (al guardar un .ts se recompila).
+      - ./frontend:/app
+      # Volumen anonimo para NO sobrescribir node_modules del contenedor
+      # con los del host (que pueden no existir en Windows/Mac).
+      - /app/node_modules
+    depends_on:
+      - backend                 # arranca despues del backend
+    networks:
+      - red-devops
+    restart: unless-stopped
+
+# ------------------------------------------------------------
+# Red personalizada:
+# Permite que los contenedores se comuniquen por NOMBRE
+# (por ejemplo, el frontend podria llamar a http://backend:3000
+#  si hicieramos SSR. Como Angular corre en el navegador,
+#  usa http://localhost:3000).
+# ------------------------------------------------------------
+networks:
+  red-devops:
+    driver: bridge
+
+# ------------------------------------------------------------
+# Volumen nombrado:
+# Docker lo gestiona en /var/lib/docker/volumes.
+# Sobrevive a 'docker compose down' (solo se borra con
+# 'docker compose down -v').
+# ------------------------------------------------------------
+volumes:
+  datos-tareas:
