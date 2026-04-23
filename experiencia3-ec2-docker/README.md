@@ -741,17 +741,19 @@ Todos los siguientes comandos se ejecutan **dentro de la sesion SSH**:
 
 ```bash
 # Actualizar paquetes del sistema
-sudo dnf update -y
+sudo yum update -y
 
 # Instalar Docker
-sudo dnf install docker -y
+sudo yum install -y docker
 
-# Iniciar Docker y habilitarlo para que arranque al reiniciar la instancia
-sudo systemctl start docker
+# Iniciar el servicio Docker
+sudo service docker start
+
+# Habilitar Docker para que arranque automaticamente al reiniciar la instancia
 sudo systemctl enable docker
 
 # Agregar tu usuario al grupo docker (evita usar sudo en cada comando)
-sudo usermod -aG docker ec2-user
+sudo usermod -a -G docker ec2-user
 
 # Agregar 1 GB de swap (precaucion con t2.micro de solo 1 GB de RAM)
 sudo dd if=/dev/zero of=/swapfile bs=128M count=8
@@ -762,11 +764,11 @@ sudo swapon /swapfile
 
 | Comando | Significado |
 |---|---|
-| `sudo dnf update -y` | Actualiza todos los paquetes instalados. `dnf` es el gestor de paquetes de Amazon Linux 2023 (equivalente a `apt` en Ubuntu). `-y` responde "sí" automáticamente a todas las preguntas. |
-| `sudo dnf install docker -y` | Instala el motor Docker. En Amazon Linux 2023, `docker-compose-plugin` no está en los repos por defecto; como esta experiencia no usa Compose en EC2, no se instala. |
-| `sudo systemctl start docker` | Inicia el servicio Docker ahora mismo. `systemctl` controla los servicios del sistema (systemd). |
-| `sudo systemctl enable docker` | Configura Docker para que arranque automáticamente cada vez que la instancia se reinicie. |
-| `sudo usermod -aG docker ec2-user` | Agrega el usuario `ec2-user` al grupo `docker`. `-a` = append (no reemplaza grupos existentes), `-G docker` = grupo al que se agrega. Evita tener que escribir `sudo` antes de cada comando de Docker. |
+| `sudo yum update -y` | Actualiza todos los paquetes instalados. En Amazon Linux 2023 `yum` es el gestor oficial de paquetes (equivalente a `apt` en Ubuntu). `-y` responde "sí" automáticamente. |
+| `sudo yum install -y docker` | Instala el motor Docker desde los repositorios de Amazon Linux 2023. |
+| `sudo service docker start` | Inicia el servicio Docker usando el sistema de init compatible con Amazon Linux. Es el método recomendado en la documentación oficial de AWS; `systemctl start docker` puede fallar en AL2023. |
+| `sudo systemctl enable docker` | Registra Docker para que inicie automáticamente cada vez que la instancia se reinicie. Se usa `systemctl enable` (no `start`) porque el arranque ya lo hizo `service`. |
+| `sudo usermod -a -G docker ec2-user` | Agrega `ec2-user` al grupo `docker`. `-a` = append (conserva grupos existentes), `-G docker` = grupo destino. Con esto no hace falta escribir `sudo` antes de cada comando Docker. |
 | `sudo dd if=/dev/zero of=/swapfile bs=128M count=8` | Crea un archivo de 1 GB lleno de ceros para usarlo como swap. `if` = input file, `of` = output file, `bs` = block size, `count` = número de bloques (128M × 8 = 1 GB). |
 | `sudo chmod 600 /swapfile` | Restringe el acceso al archivo de swap: solo el propietario (root) puede leer y escribir. Linux exige estos permisos para activar swap. |
 | `sudo mkswap /swapfile` | Formatea el archivo como espacio de swap (escribe la cabecera que Linux necesita). |
@@ -1084,11 +1086,11 @@ ssh -i ~/devops-key-<TU-NOMBRE>.pem ec2-user@<IP-FRONTEND>
 Los comandos son exactamente los mismos que en el Paso 4.4:
 
 ```bash
-sudo dnf update -y
-sudo dnf install docker -y
-sudo systemctl start docker
+sudo yum update -y
+sudo yum install -y docker
+sudo service docker start
 sudo systemctl enable docker
-sudo usermod -aG docker ec2-user
+sudo usermod -a -G docker ec2-user
 sudo dd if=/dev/zero of=/swapfile bs=128M count=8
 sudo chmod 600 /swapfile
 sudo mkswap /swapfile
