@@ -212,36 +212,163 @@ Account ID:    ________________ (los primeros 12 digitos del URI)
 
 ---
 
-## Paso 2.4 – Autenticar Docker en tu maquina local contra ECR
+## Paso 2.4 – Instalar y configurar el AWS CLI en tu maquina local
 
-Para que Docker en tu computador pueda subir imagenes a ECR necesita
-autenticarse con tus credenciales de AWS.
+El AWS CLI es la herramienta de linea de comandos para interactuar con AWS
+desde la terminal. Lo usaras para autenticar Docker contra ECR.
 
-**Obtener credenciales en AWS Academy Learner Lab:**
+### Verificar si ya esta instalado
+
+```bash
+aws --version
+```
+
+Si responde `aws-cli/2.x.x`, ya esta instalado — salta a **"Obtener credenciales"**.
+
+---
+
+### Instalar AWS CLI v2
+
+**Windows:**
+
+1. Descarga el instalador: `https://awscli.amazonaws.com/AWSCLIV2.msi`
+2. Ejecuta el `.msi` y sigue el asistente (Next → Next → Install).
+3. Cierra y vuelve a abrir Git Bash o PowerShell.
+4. Verifica con `aws --version`.
+
+**macOS:**
+
+```bash
+curl "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o AWSCLIV2.pkg
+sudo installer -pkg AWSCLIV2.pkg -target /
+aws --version
+```
+
+**Linux:**
+
+```bash
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip
+unzip awscliv2.zip
+sudo ./aws/install
+aws --version
+```
+
+---
+
+### Obtener las credenciales desde AWS Academy
 
 1. En el Learner Lab, haz clic en **AWS Details** (esquina superior derecha).
 2. Haz clic en **Show** junto a *AWS CLI*.
-3. Copia el bloque completo de credenciales.
+3. Veras un bloque de texto con este formato:
 
-**Configurar el AWS CLI en tu terminal:**
+```
+[default]
+aws_access_key_id=ASIA4BUJWSL7GKK3SV4M
+aws_secret_access_key=6dFVjKXBDxs41+mxUHAyO3WPiE1mdfQSMj7ecaed
+aws_session_token=IQoJb3JpZ2luX2VjEJf//////////wEaCXVzLXdlc3Qt...
+```
+
+> Estas son credenciales temporales generadas por AWS Academy.
+> **No las compartas ni las subas a GitHub.**
+> Expiran cada ~4 horas; si un comando falla con `ExpiredTokenException`
+> repite desde este punto.
+
+---
+
+### Pegar las credenciales en tu maquina
+
+El metodo mas rapido es pegar el bloque directamente en el archivo
+de credenciales de AWS:
+
+**macOS / Linux — en la terminal:**
 
 ```bash
-aws configure
+mkdir -p ~/.aws
+nano ~/.aws/credentials
 ```
 
-Ingresa los valores del bloque copiado:
+Borra el contenido anterior (si existe), pega el bloque completo y guarda
+con `Ctrl+O`, Enter, `Ctrl+X`.
+
+**Windows — en Git Bash (recomendado en el laboratorio):**
+
+1. Abre **Git Bash** (clic derecho en el escritorio → *Git Bash Here*,
+   o búscalo en el menú Inicio).
+
+2. Crea la carpeta `.aws` si no existe y abre el archivo de credenciales:
+
+```bash
+mkdir -p ~/.aws
+notepad ~/.aws/credentials
+```
+
+   Git Bash traduce `~/.aws/credentials` a `C:\Users\<TuUsuario>\.aws\credentials`.
+   Si el archivo no existía, el Bloc de notas preguntará si deseas crearlo —
+   haz clic en **Sí**.
+
+3. En el Bloc de notas que se abre:
+   - Selecciona todo el contenido anterior con **Ctrl + A** y bórralo.
+   - Pega el bloque de credenciales con **Ctrl + V**.
+   - Guarda el archivo con **Ctrl + S**.
+   - Cierra el Bloc de notas.
+
+> **¿No encuentras la carpeta `.aws` en el Explorador de archivos?**
+> Las carpetas que empiezan con punto (`.`) están ocultas en Windows por defecto.
+> Para verlas: Explorador de archivos → pestaña **Vista** → activa **Elementos ocultos**.
+> La ruta es: `C:\Users\<TuUsuario>\.aws\`
+
+**Windows — alternativa con PowerShell:**
+
+1. Abre **PowerShell** desde el menú Inicio (no requiere «Ejecutar como administrador»).
+
+2. Ejecuta los siguientes comandos:
+
+```powershell
+# Crear la carpeta .aws si no existe
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.aws"
+
+# Abrir el archivo de credenciales en el Bloc de notas
+notepad "$env:USERPROFILE\.aws\credentials"
+```
+
+3. En el Bloc de notas: borra el contenido anterior, pega el bloque
+   de credenciales (**Ctrl + V**), guarda (**Ctrl + S**) y cierra.
+
+El archivo debe quedar exactamente asi (con tus propios valores):
 
 ```
-AWS Access Key ID:     <pega aqui>
-AWS Secret Access Key: <pega aqui>
-Default region name:   us-east-1
-Default output format: json
+[default]
+aws_access_key_id=ASIA4BUJWSL7GKK3SV4M
+aws_secret_access_key=6dFVjKXBDxs41+mxUHAyO3WPiE1mdfQSMj7ecaed
+aws_session_token=IQoJb3JpZ2luX2VjEJf//////////wEaCXVzLXdlc3Qt...
 ```
 
-> Las credenciales de AWS Academy expiran cada ~4 horas.
-> Si un comando falla con `ExpiredTokenException`, repite este paso.
+> **No uses `aws configure`** con credenciales de Academy: ese comando
+> no guarda el `aws_session_token`, que es obligatorio para que funcione.
 
-**Autenticar Docker contra ECR:**
+---
+
+### Verificar que la configuracion es correcta
+
+```bash
+aws sts get-caller-identity
+```
+
+Deberia responder un JSON como este:
+
+```json
+{
+    "UserId": "AROA4BUJWSL7...",
+    "Account": "828143735550",
+    "Arn": "arn:aws:sts::828143735550:assumed-role/LabRole/..."
+}
+```
+
+Si ves el JSON, las credenciales estan activas y el CLI esta listo.
+
+---
+
+### Autenticar Docker contra ECR
 
 ```bash
 aws ecr get-login-password --region us-east-1 | \
@@ -250,7 +377,6 @@ aws ecr get-login-password --region us-east-1 | \
 ```
 
 Resultado esperado: `Login Succeeded`
-
 ---
 
 # Parte 3 – Build y push de imagenes a ECR (15 min)
@@ -487,32 +613,125 @@ curl http://localhost:3000/api/tareas
 
 ## Paso 5.1 – Editar la URL del backend en el frontend
 
-Abre `frontend/src/app/services/tareas.service.ts` con tu editor y cambia:
+Debes cambiar **una sola línea** en el archivo
+`frontend/src/app/services/tareas.service.ts`:
 
-**Antes:**
-
-```typescript
-readonly baseUrl = 'http://localhost:3000';
+```
+Antes:   readonly baseUrl = 'http://localhost:3000';
+Después: readonly baseUrl = 'http://<IP-BACKEND>:3000';
 ```
 
-**Despues** (usa la IP del Paso 4.2):
+Usa la IP pública del backend EC2 que anotaste en el Paso 4.2.
+Sigue las instrucciones para el editor disponible en el laboratorio.
 
-```typescript
-readonly baseUrl = 'http://<IP-BACKEND>:3000';
-```
+---
 
-Ejemplo:
+### Opción A – Visual Studio Code (recomendado si está instalado)
+
+1. Abre **Visual Studio Code** desde el menú Inicio.
+
+2. En la barra de menú superior: **File → Open Folder…**
+
+3. Navega a la carpeta `frontend_intro_devops` que clonaste en el Paso 1.1.
+   La ruta suele ser:
+   ```
+   C:\Users\<TuUsuario>\frontend_intro_devops
+   ```
+   Selecciona esa carpeta y haz clic en **Seleccionar carpeta**.
+
+4. En el panel izquierdo (Explorador de archivos de VS Code), expande las
+   carpetas hasta llegar al archivo:
+   ```
+   frontend_intro_devops
+   └── src
+       └── app
+           └── services
+               └── tareas.service.ts
+   ```
+   Haz doble clic en `tareas.service.ts` para abrirlo en el editor.
+
+5. Usa la búsqueda integrada para encontrar la línea exacta:
+   - Presiona **Ctrl + F**
+   - Escribe `localhost:3000`
+   - VS Code resalta la coincidencia en el archivo
+
+6. Cierra el buscador con **Escape** y edita la línea directamente:
+
+   **Antes:**
+   ```typescript
+   readonly baseUrl = 'http://localhost:3000';
+   ```
+
+   **Después** (sustituye con la IP real de tu backend EC2):
+   ```typescript
+   readonly baseUrl = 'http://54.234.12.88:3000';
+   ```
+
+7. Guarda con **Ctrl + S**.
+
+   > VS Code muestra un círculo (●) junto al nombre del archivo cuando hay
+   > cambios sin guardar. Después de **Ctrl + S** el círculo desaparece —
+   > eso confirma que el archivo fue guardado.
+
+---
+
+### Opción B – Notepad++ (común en laboratorios de universidades)
+
+1. Abre el **Explorador de archivos** de Windows y navega a:
+   ```
+   C:\Users\<TuUsuario>\frontend_intro_devops\src\app\services
+   ```
+
+2. Haz clic derecho sobre `tareas.service.ts` → **Edit with Notepad++**
+   *(Si no aparece esa opción, haz clic derecho → Abrir con → Notepad++)*.
+
+3. Usa Buscar y Reemplazar para hacer el cambio con precisión:
+   - Presiona **Ctrl + H**
+   - **Buscar:** `http://localhost:3000`
+   - **Reemplazar con:** `http://<IP-BACKEND>:3000`
+     (escribe la IP real, por ejemplo `http://54.234.12.88:3000`)
+   - Haz clic en **Reemplazar todo**
+
+4. Guarda con **Ctrl + S**.
+
+---
+
+### Opción C – Bloc de notas de Windows (si no hay otro editor)
+
+> El Bloc de notas no tiene resaltado de código, pero funciona para este
+> cambio puntual.
+
+1. En el **Explorador de archivos**, navega a:
+   ```
+   C:\Users\<TuUsuario>\frontend_intro_devops\src\app\services
+   ```
+
+2. Haz clic derecho sobre `tareas.service.ts` → **Abrir con → Bloc de notas**
+   *(Si no aparece: clic derecho → «Abrir con» → «Elegir otra aplicación» → busca Bloc de notas o Notepad)*.
+
+3. Busca la línea con `localhost:3000`:
+   - Presiona **Ctrl + F**
+   - Escribe `localhost:3000` → **Buscar siguiente**
+   - La línea quedará seleccionada en pantalla
+
+4. Cierra el cuadro de búsqueda con **Escape** y edita la línea manualmente.
+
+5. Guarda con **Ctrl + S**.
+
+---
+
+### Resultado esperado (en cualquier editor)
+
+La línea modificada debe verse así, con la IP real de tu backend:
 
 ```typescript
 readonly baseUrl = 'http://54.234.12.88:3000';
 ```
 
-Guarda el archivo.
-
-> **Nota:** en proyectos reales no se hardcodea la IP en el codigo fuente.
-> Se usa `environment.ts` de Angular o variables de entorno en tiempo de
-> build. Para esta experiencia lo hacemos directo para simplificar y
-> enfocarnos en ECR y la arquitectura por capas.
+> **Nota:** en proyectos reales no se hardcodea la IP en el código fuente.
+> Se usan variables de entorno (`environment.ts` en Angular) configuradas
+> en tiempo de build. Para esta experiencia lo hacemos directamente para
+> simplificar y enfocarnos en ECR y la arquitectura por capas.
 
 ---
 
