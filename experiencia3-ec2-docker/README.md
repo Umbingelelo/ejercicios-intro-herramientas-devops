@@ -545,25 +545,41 @@ Resultado esperado: `Login Succeeded`
 
 Asegurate de estar en la carpeta `exp3-aws/` (la que contiene ambos repositorios).
 
+> **🍎 Nota para Mac con Apple Silicon (M1 / M2 / M3)**
+>
+> Los Mac con chip Apple Silicon tienen arquitectura **ARM64**.
+> Las instancias EC2 t2.micro son **x86_64 (amd64)**.
+> Si construyes una imagen sin especificar la plataforma, Docker genera
+> una imagen ARM64 que el EC2 no puede ejecutar. Al hacer `docker pull`
+> verás el error: *"no encontró el manifiesto para linux/amd64"*.
+>
+> **Solución:** todos los comandos `docker build` de esta experiencia
+> ya incluyen el flag `--platform linux/amd64`. No es necesario que hagas
+> nada adicional — simplemente copia los comandos exactamente como aparecen.
+>
+> Si tienes un Mac Intel o un PC con Windows, este flag no afecta nada:
+> Docker lo ignora cuando ya estás en x86_64.
+
 ## Paso 3.1 – Construir la imagen del backend
 
 **Git Bash / macOS / Linux:**
 
 ```bash
-docker build -t tareas-backend:1.0 ./backend_intro_devops
+docker build --platform linux/amd64 -t tareas-backend:1.0 ./backend_intro_devops
 docker images | grep tareas-backend
 ```
 
 **PowerShell (Windows):**
 
 ```powershell
-docker build -t tareas-backend:1.0 ./backend_intro_devops
+docker build --platform linux/amd64 -t tareas-backend:1.0 ./backend_intro_devops
 docker images | Select-String "tareas-backend"
 ```
 
 | Flag / parte | Significado |
 |---|---|
 | `docker build` | Construye una imagen Docker a partir de un `Dockerfile` |
+| `--platform linux/amd64` | Fuerza la arquitectura de la imagen. Los EC2 t2.micro son x86_64 (amd64). Sin este flag, en un Mac Apple Silicon (M1/M2/M3) la imagen se construye para ARM64 y el EC2 no puede descargarla. |
 | `-t tareas-backend:1.0` | Asigna nombre (`tareas-backend`) y tag (`1.0`) a la imagen. Sin tag, Docker usa `latest`. |
 | `./backend_intro_devops` | Ruta al contexto de build: carpeta del repo backend, que contiene el `Dockerfile` |
 | `docker images` | Lista todas las imágenes locales |
@@ -616,7 +632,7 @@ Lo corregiremos en el Paso 5 una vez que tengamos la IP del EC2 backend.
 **Git Bash / PowerShell / macOS / Linux** (mismo comando en todos los sistemas):
 
 ```bash
-docker build -t tareas-frontend:1.0 ./frontend_intro_devops
+docker build --platform linux/amd64 -t tareas-frontend:1.0 ./frontend_intro_devops
 docker tag tareas-frontend:1.0 <URI-FRONTEND>:1.0
 docker push <URI-FRONTEND>:1.0
 ```
@@ -1006,7 +1022,7 @@ readonly baseUrl = 'http://54.234.12.88:3000';
 
 ```bash
 # Ejecutar desde exp3-aws/ (no desde dentro del repo)
-docker build -t tareas-frontend:2.0 ./frontend_intro_devops
+docker build --platform linux/amd64 -t tareas-frontend:2.0 ./frontend_intro_devops
 docker tag tareas-frontend:2.0 <URI-FRONTEND>:2.0
 docker push <URI-FRONTEND>:2.0
 ```
