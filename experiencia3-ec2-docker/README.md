@@ -165,14 +165,25 @@ exp3-aws/
 
 Verifica que ambas carpetas están presentes:
 
+**Git Bash / macOS / Linux:**
+
 ```bash
 ls
 # backend_intro_devops/   frontend_intro_devops/
 ```
 
+**PowerShell (Windows):**
+
+```powershell
+dir
+# o también: ls  (alias de Get-ChildItem, muestra lo mismo con diferente formato)
+```
+
 ---
 
 ## Paso 1.2 – Verificar Docker local
+
+**Git Bash / PowerShell / macOS / Linux** (el CLI de Docker es multiplataforma):
 
 ```bash
 docker --version   # muestra la versión instalada de Docker
@@ -512,8 +523,8 @@ aws ecr get-login-password --region us-east-1 |
 ```
 
 > En PowerShell, la continuación de línea usa el backtick `` ` `` en vez
-> de `\`. El `|` al final de la primera línea también funciona como
-> continuación.
+> de `\`. El `|` funciona igual que en bash cuando conecta programas
+> externos como `aws` y `docker` (PowerShell les pasa el texto directamente).
 
 **¿Qué hace cada parte?**
 
@@ -536,9 +547,18 @@ Asegurate de estar en la carpeta `exp3-aws/` (la que contiene ambos repositorios
 
 ## Paso 3.1 – Construir la imagen del backend
 
+**Git Bash / macOS / Linux:**
+
 ```bash
 docker build -t tareas-backend:1.0 ./backend_intro_devops
 docker images | grep tareas-backend
+```
+
+**PowerShell (Windows):**
+
+```powershell
+docker build -t tareas-backend:1.0 ./backend_intro_devops
+docker images | Select-String "tareas-backend"
 ```
 
 | Flag / parte | Significado |
@@ -547,7 +567,8 @@ docker images | grep tareas-backend
 | `-t tareas-backend:1.0` | Asigna nombre (`tareas-backend`) y tag (`1.0`) a la imagen. Sin tag, Docker usa `latest`. |
 | `./backend_intro_devops` | Ruta al contexto de build: carpeta del repo backend, que contiene el `Dockerfile` |
 | `docker images` | Lista todas las imágenes locales |
-| `\| grep tareas-backend` | Filtra la salida para mostrar solo las líneas que contienen `tareas-backend` |
+| `\| grep tareas-backend` | (Git Bash / Linux) Filtra la salida para mostrar solo las líneas que contienen `tareas-backend` |
+| `\| Select-String "tareas-backend"` | (PowerShell) Equivalente a `grep`: busca líneas que coincidan con el texto indicado |
 
 ---
 
@@ -555,6 +576,8 @@ docker images | grep tareas-backend
 
 `docker tag` crea un alias con el URI completo de ECR.
 `docker push` sube la imagen capa por capa.
+
+**Git Bash / PowerShell / macOS / Linux** (mismo comando en todos los sistemas):
 
 ```bash
 docker tag tareas-backend:1.0 <URI-BACKEND>:1.0
@@ -589,6 +612,8 @@ y confirma que aparece la imagen con el tag `1.0`.
 
 Por ahora construimos el frontend con `localhost` como URL del backend.
 Lo corregiremos en el Paso 5 una vez que tengamos la IP del EC2 backend.
+
+**Git Bash / PowerShell / macOS / Linux** (mismo comando en todos los sistemas):
 
 ```bash
 docker build -t tareas-frontend:1.0 ./frontend_intro_devops
@@ -718,8 +743,8 @@ Todos los siguientes comandos se ejecutan **dentro de la sesion SSH**:
 # Actualizar paquetes del sistema
 sudo dnf update -y
 
-# Instalar Docker y el plugin de Compose
-sudo dnf install docker docker-compose-plugin -y
+# Instalar Docker
+sudo dnf install docker -y
 
 # Iniciar Docker y habilitarlo para que arranque al reiniciar la instancia
 sudo systemctl start docker
@@ -738,7 +763,7 @@ sudo swapon /swapfile
 | Comando | Significado |
 |---|---|
 | `sudo dnf update -y` | Actualiza todos los paquetes instalados. `dnf` es el gestor de paquetes de Amazon Linux 2023 (equivalente a `apt` en Ubuntu). `-y` responde "sí" automáticamente a todas las preguntas. |
-| `sudo dnf install docker docker-compose-plugin -y` | Instala Docker y el plugin de Compose. `docker-compose-plugin` permite usar `docker compose` (sin guion). |
+| `sudo dnf install docker -y` | Instala el motor Docker. En Amazon Linux 2023, `docker-compose-plugin` no está en los repos por defecto; como esta experiencia no usa Compose en EC2, no se instala. |
 | `sudo systemctl start docker` | Inicia el servicio Docker ahora mismo. `systemctl` controla los servicios del sistema (systemd). |
 | `sudo systemctl enable docker` | Configura Docker para que arranque automáticamente cada vez que la instancia se reinicie. |
 | `sudo usermod -aG docker ec2-user` | Agrega el usuario `ec2-user` al grupo `docker`. `-a` = append (no reemplaza grupos existentes), `-G docker` = grupo al que se agrega. Evita tener que escribir `sudo` antes de cada comando de Docker. |
@@ -975,15 +1000,12 @@ readonly baseUrl = 'http://54.234.12.88:3000';
 
 ## Paso 5.2 – Reconstruir y publicar la imagen actualizada con tag 2.0
 
+**Git Bash / PowerShell / macOS / Linux** (mismo comando en todos los sistemas):
+
 ```bash
-# Reconstruir con la URL del backend correcta
 # Ejecutar desde exp3-aws/ (no desde dentro del repo)
 docker build -t tareas-frontend:2.0 ./frontend_intro_devops
-
-# Etiquetar para ECR
 docker tag tareas-frontend:2.0 <URI-FRONTEND>:2.0
-
-# Publicar en ECR
 docker push <URI-FRONTEND>:2.0
 ```
 
@@ -1063,7 +1085,7 @@ Los comandos son exactamente los mismos que en el Paso 4.4:
 
 ```bash
 sudo dnf update -y
-sudo dnf install docker docker-compose-plugin -y
+sudo dnf install docker -y
 sudo systemctl start docker
 sudo systemctl enable docker
 sudo usermod -aG docker ec2-user
