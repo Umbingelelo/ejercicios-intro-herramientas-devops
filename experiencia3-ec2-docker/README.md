@@ -113,8 +113,14 @@ Abre una terminal (**Git Bash** en Windows, Terminal en macOS/Linux)
 y clona el repositorio del curso:
 
 ```bash
-git clone <URL-DEL-REPOSITORIO-DEL-CURSO> proyecto-devops
-cd proyecto-devops/experiencia2-docker/actividad-docker
+git clone https://github.com/Umbingelelo/backend_intro_devops.git
+git clone https://github.com/Umbingelelo/frontend_intro_devops.git
+```
+
+Entra a la carpeta del backend:
+
+```bash
+cd backend_intro_devops
 ```
 
 > El profesor indicara la URL exacta del repositorio.
@@ -123,7 +129,7 @@ Verifica que tienes todos los archivos:
 
 ```bash
 ls
-# backend/  frontend/  docker-compose.yml  .env.example  README.md
+# backend/  frontend/  docker-compose.yml  .env.example
 ```
 
 ---

@@ -211,13 +211,14 @@ Ejecuta `docker ps -a` para ver ese contenedor detenido.
 Si todavia no lo has hecho, clona el repositorio **una sola vez**:
 
 ```bash
-git clone <URL-del-repositorio> ejercicios-intro-herramientas-devops
+git clone https://github.com/Umbingelelo/backend_intro_devops.git
+git clone https://github.com/Umbingelelo/frontend_intro_devops.git
 ```
 
-Luego, **para esta experiencia** situate en la sub-carpeta de la actividad:
+Para la Experiencia 2 necesitas ambos. Entra a la carpeta del backend:
 
 ```bash
-cd ejercicios-intro-herramientas-devops/experiencia2-docker/actividad-docker
+cd backend_intro_devops
 ```
 
 > **Muy importante:** todos los comandos siguientes asumen que tu terminal
