@@ -15,7 +15,7 @@ el backend corre en una EC2 y el frontend en otra EC2 separada.
 Las imagenes se publican en **Amazon ECR** (registro privado de contenedores de AWS)
 y cada servidor las descarga desde ahi.
 
-```
+```text
 [ Tu computador local ]
         |
   git clone + docker build
@@ -107,29 +107,67 @@ Al terminar esta experiencia el estudiante sera capaz de:
 
 # Parte 1 – Clonar y preparar el proyecto en local (15 min)
 
-## Paso 1.1 – Clonar el repositorio
+## Paso 1.1 – Crear la carpeta de trabajo y clonar los repositorios
+
+Como son dos repositorios separados (uno para backend y otro para frontend),
+primero crea una carpeta que los contenga a ambos y entra en ella.
+
+**Git Bash / macOS / Linux:**
+
+```bash
+mkdir exp3-aws
+cd exp3-aws
+```
+
+**PowerShell (Windows):**
+
+```powershell
+New-Item -ItemType Directory -Name exp3-aws
+cd exp3-aws
+```
+
+| Comando | Significado |
+|---|---|
+| `mkdir exp3-aws` / `New-Item -Name exp3-aws` | Crea la carpeta de trabajo para esta experiencia |
+| `cd exp3-aws` | Entra a la carpeta. Todos los pasos siguientes se ejecutan desde aquí. |
 
 Abre una terminal (**Git Bash** en Windows, Terminal en macOS/Linux)
-y clona el repositorio del curso:
+y clona los dos repositorios dentro de `exp3-aws/`:
 
 ```bash
 git clone https://github.com/Umbingelelo/backend_intro_devops.git
 git clone https://github.com/Umbingelelo/frontend_intro_devops.git
 ```
 
-Entra a la carpeta del backend:
+| Parte | Significado |
+|---|---|
+| `git clone` | Descarga una copia completa del repositorio remoto en tu máquina local |
+| URL `.git` | Dirección del repositorio en GitHub |
+| (carpeta resultante) | Git crea una subcarpeta con el nombre del repo automáticamente |
 
-```bash
-cd backend_intro_devops
+La estructura de carpetas quedará así:
+
+```text
+exp3-aws/
+├── backend_intro_devops/    ← repositorio del backend (Node.js + Express)
+│   ├── Dockerfile
+│   ├── server.js
+│   └── ...
+└── frontend_intro_devops/   ← repositorio del frontend (Angular)
+    ├── Dockerfile
+    ├── src/
+    └── ...
 ```
 
-> El profesor indicara la URL exacta del repositorio.
+> **Importante:** todos los comandos `docker build` de esta experiencia
+> se ejecutan desde la carpeta `exp3-aws/` (el nivel que contiene ambas
+> subcarpetas). Si te mueves dentro de un repo, vuelve con `cd ..`.
 
-Verifica que tienes todos los archivos:
+Verifica que ambas carpetas están presentes:
 
 ```bash
 ls
-# backend/  frontend/  docker-compose.yml  .env.example
+# backend_intro_devops/   frontend_intro_devops/
 ```
 
 ---
@@ -137,9 +175,14 @@ ls
 ## Paso 1.2 – Verificar Docker local
 
 ```bash
-docker --version
-docker images
+docker --version   # muestra la versión instalada de Docker
+docker images      # lista las imágenes descargadas en tu máquina
 ```
+
+| Comando | Qué hace |
+|---|---|
+| `docker --version` | Imprime la versión del cliente Docker; confirma que está instalado |
+| `docker images` | Lista todas las imágenes locales (nombre, tag, ID, tamaño) |
 
 Si Docker no esta corriendo, abre **Docker Desktop** (Windows/macOS)
 o ejecuta `sudo systemctl start docker` (Linux).
@@ -148,7 +191,7 @@ o ejecuta `sudo systemctl start docker` (Linux).
 
 ## Paso 1.3 – El problema de localhost en arquitectura por capas
 
-Abre `frontend/src/app/services/tareas.service.ts` y busca esta linea:
+Abre `frontend_intro_devops/src/app/services/tareas.service.ts` y busca esta linea:
 
 ```typescript
 readonly baseUrl = 'http://localhost:3000';
@@ -244,6 +287,12 @@ sudo installer -pkg AWSCLIV2.pkg -target /
 aws --version
 ```
 
+| Comando | Significado |
+|---|---|
+| `curl "URL" -o AWSCLIV2.pkg` | Descarga el archivo desde la URL y lo guarda con el nombre indicado en `-o` |
+| `sudo installer -pkg ... -target /` | Ejecuta el instalador de macOS (`.pkg`) en el sistema raíz (`/`) |
+| `aws --version` | Verifica que la instalación fue exitosa |
+
 **Linux:**
 
 ```bash
@@ -252,6 +301,13 @@ unzip awscliv2.zip
 sudo ./aws/install
 aws --version
 ```
+
+| Comando | Significado |
+|---|---|
+| `curl "URL" -o awscliv2.zip` | Descarga el instalador comprimido desde AWS |
+| `unzip awscliv2.zip` | Descomprime el archivo `.zip` en la carpeta actual |
+| `sudo ./aws/install` | Ejecuta el script de instalación con permisos de superusuario |
+| `aws --version` | Confirma que la instalación fue exitosa |
 
 ---
 
@@ -277,9 +333,6 @@ aws_session_token=IQoJb3JpZ2luX2VjEJf//////////wEaCXVzLXdlc3Qt...
 
 ### Pegar las credenciales en tu maquina
 
-El metodo mas rapido es pegar el bloque directamente en el archivo
-de credenciales de AWS:
-
 **macOS / Linux — en la terminal:**
 
 ```bash
@@ -287,52 +340,107 @@ mkdir -p ~/.aws
 nano ~/.aws/credentials
 ```
 
+| Parte | Significado |
+|---|---|
+| `mkdir -p ~/.aws` | Crea la carpeta `~/.aws` (`~` = tu carpeta de usuario). `-p` evita error si ya existe. |
+| `nano` | Editor de texto en terminal. Más sencillo que `vi` para principiantes. |
+| `~/.aws/credentials` | Ruta del archivo de credenciales que lee el AWS CLI por defecto. |
+| `Ctrl+O` → Enter | Guardar el archivo en `nano`. |
+| `Ctrl+X` | Salir de `nano`. |
+
 Borra el contenido anterior (si existe), pega el bloque completo y guarda
 con `Ctrl+O`, Enter, `Ctrl+X`.
 
-**Windows — en Git Bash (recomendado en el laboratorio):**
+---
 
-1. Abre **Git Bash** (clic derecho en el escritorio → *Git Bash Here*,
-   o búscalo en el menú Inicio).
+**Windows — método recomendado (PowerShell directo)**
 
-2. Crea la carpeta `.aws` si no existe y abre el archivo de credenciales:
+> ⚠️ **Problema frecuente en Windows:** si intentas crear el archivo
+> manualmente desde el Explorador o con el Bloc de notas, Windows agrega
+> automáticamente la extensión `.txt` y el archivo queda como
+> `credentials.txt`. El AWS CLI no reconoce esa extensión y las
+> credenciales **no funcionan**. Usa el método PowerShell de abajo para
+> evitar ese problema.
+
+1. Abre **PowerShell** desde el menú Inicio
+   *(búscalo como "PowerShell" — no requiere «Ejecutar como administrador»)*.
+
+2. Crea la carpeta `.aws` con este comando:
+
+```powershell
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.aws"
+```
+
+| Flag | Significado |
+|---|---|
+| `New-Item` | Crea un elemento nuevo (archivo o carpeta) en PowerShell |
+| `-ItemType Directory` | Indica que el elemento a crear es una carpeta |
+| `-Force` | No falla si la carpeta ya existe; la deja tal como está |
+| `-Path "$env:USERPROFILE\.aws"` | Ruta destino. `$env:USERPROFILE` se expande a `C:\Users\<TuUsuario>\.aws` |
+
+3. Escribe el bloque de credenciales directamente al archivo **sin abrir
+   ningún editor**, pegando el siguiente comando en PowerShell y
+   reemplazando los tres valores con los tuyos de AWS Details:
+
+```powershell
+@"
+[default]
+aws_access_key_id=PEGA_TU_ACCESS_KEY_ID
+aws_secret_access_key=PEGA_TU_SECRET_ACCESS_KEY
+aws_session_token=PEGA_TU_SESSION_TOKEN
+"@ | Set-Content -Path "$env:USERPROFILE\.aws\credentials" -Encoding utf8
+```
+
+| Parte | Significado |
+|---|---|
+| `@" ... "@` | Bloque de texto multilínea en PowerShell (heredoc). Todo lo que esté dentro se trata como texto literal. |
+| `Set-Content` | Escribe el texto en el archivo, creándolo si no existe. Sobrescribe el contenido anterior. |
+| `-Path` | Ruta destino del archivo de credenciales. |
+| `-Encoding utf8` | Guarda en UTF-8 sin BOM, el formato que espera el AWS CLI. Sin este flag, PowerShell usa UTF-16 que AWS CLI no lee. |
+
+   > **¿Cómo pegar en PowerShell?** Clic derecho en la ventana de
+   > PowerShell pega el contenido del portapapeles. También puedes usar
+   > `Ctrl + V` si tu versión lo soporta.
+
+4. Verifica que el archivo existe y tiene contenido:
+
+```powershell
+Get-Content "$env:USERPROFILE\.aws\credentials"
+```
+
+| Comando | Significado |
+|---|---|
+| `Get-Content` | Lee y muestra el contenido de un archivo en PowerShell (equivalente a `cat` en Linux) |
+| `"$env:USERPROFILE\.aws\credentials"` | Ruta del archivo de credenciales de AWS |
+
+   Debes ver el bloque `[default]` con tus tres claves. Si sale vacío o
+   da error, repite desde el paso 3.
+
+---
+
+**Windows — método alternativo con Git Bash**
+
+Si prefieres usar Git Bash y quieres evitar el problema del `.txt`,
+usa `tee` en lugar de Notepad:
 
 ```bash
 mkdir -p ~/.aws
-notepad ~/.aws/credentials
+cat > ~/.aws/credentials << 'EOF'
+[default]
+aws_access_key_id=PEGA_TU_ACCESS_KEY_ID
+aws_secret_access_key=PEGA_TU_SECRET_ACCESS_KEY
+aws_session_token=PEGA_TU_SESSION_TOKEN
+EOF
 ```
 
-   Git Bash traduce `~/.aws/credentials` a `C:\Users\<TuUsuario>\.aws\credentials`.
-   Si el archivo no existía, el Bloc de notas preguntará si deseas crearlo —
-   haz clic en **Sí**.
+| Parte | Significado |
+|---|---|
+| `cat >` | Redirige la salida del bloque al archivo indicado, sobrescribiéndolo si ya existe. Evita abrir ningún editor. |
+| `<< 'EOF'` | Inicio del heredoc: indica que el texto a continuación se trata como entrada literal hasta encontrar `EOF` solo en una línea. |
+| Resultado | El archivo `credentials` se crea **sin extensión `.txt`** directamente desde la terminal. |
 
-3. En el Bloc de notas que se abre:
-   - Selecciona todo el contenido anterior con **Ctrl + A** y bórralo.
-   - Pega el bloque de credenciales con **Ctrl + V**.
-   - Guarda el archivo con **Ctrl + S**.
-   - Cierra el Bloc de notas.
-
-> **¿No encuentras la carpeta `.aws` en el Explorador de archivos?**
-> Las carpetas que empiezan con punto (`.`) están ocultas en Windows por defecto.
-> Para verlas: Explorador de archivos → pestaña **Vista** → activa **Elementos ocultos**.
-> La ruta es: `C:\Users\<TuUsuario>\.aws\`
-
-**Windows — alternativa con PowerShell:**
-
-1. Abre **PowerShell** desde el menú Inicio (no requiere «Ejecutar como administrador»).
-
-2. Ejecuta los siguientes comandos:
-
-```powershell
-# Crear la carpeta .aws si no existe
-New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.aws"
-
-# Abrir el archivo de credenciales en el Bloc de notas
-notepad "$env:USERPROFILE\.aws\credentials"
-```
-
-3. En el Bloc de notas: borra el contenido anterior, pega el bloque
-   de credenciales (**Ctrl + V**), guarda (**Ctrl + S**) y cierra.
+   Después de pegar el comando, presiona **Enter** — el archivo se crea
+   automáticamente sin extensión `.txt`.
 
 El archivo debe quedar exactamente asi (con tus propios valores):
 
@@ -350,9 +458,24 @@ aws_session_token=IQoJb3JpZ2luX2VjEJf//////////wEaCXVzLXdlc3Qt...
 
 ### Verificar que la configuracion es correcta
 
+**Git Bash / macOS / Linux:**
+
 ```bash
 aws sts get-caller-identity
 ```
+
+**PowerShell:**
+
+```powershell
+aws sts get-caller-identity
+```
+
+| Parte | Significado |
+|---|---|
+| `aws sts` | STS = Security Token Service: servicio de AWS que gestiona credenciales temporales |
+| `get-caller-identity` | Subcomando que devuelve el usuario/rol asociado a las credenciales activas |
+
+> Solo lectura: no modifica nada en AWS. Es el equivalente a «¿quién soy yo?».
 
 Deberia responder un JSON como este:
 
@@ -365,10 +488,14 @@ Deberia responder un JSON como este:
 ```
 
 Si ves el JSON, las credenciales estan activas y el CLI esta listo.
+Si ves `ExpiredTokenException`, vuelve al paso **"Obtener credenciales"**
+y repega el nuevo bloque desde AWS Details.
 
 ---
 
 ### Autenticar Docker contra ECR
+
+**Git Bash / macOS / Linux:**
 
 ```bash
 aws ecr get-login-password --region us-east-1 | \
@@ -376,19 +503,51 @@ aws ecr get-login-password --region us-east-1 | \
   <ACCOUNT-ID>.dkr.ecr.us-east-1.amazonaws.com
 ```
 
+**PowerShell (Windows):**
+
+```powershell
+aws ecr get-login-password --region us-east-1 |
+  docker login --username AWS --password-stdin `
+  <ACCOUNT-ID>.dkr.ecr.us-east-1.amazonaws.com
+```
+
+> En PowerShell, la continuación de línea usa el backtick `` ` `` en vez
+> de `\`. El `|` al final de la primera línea también funciona como
+> continuación.
+
+**¿Qué hace cada parte?**
+
+| Fragmento | Significado |
+|---|---|
+| `aws ecr get-login-password` | Obtiene un token temporal de autenticación para ECR (válido 12 h) |
+| `--region us-east-1` | Región de AWS donde están tus repositorios ECR |
+| `\|` | Pipe: envía la salida del comando anterior como entrada al siguiente |
+| `docker login` | Autentica Docker contra un registro de imágenes |
+| `--username AWS` | Usuario estándar que exige ECR (siempre es literalmente `AWS`) |
+| `--password-stdin` | Lee la contraseña desde stdin en vez de pedirla interactiva (más seguro) |
+| `<ACCOUNT-ID>.dkr.ecr...` | URL del registro privado ECR de tu cuenta |
+
 Resultado esperado: `Login Succeeded`
 ---
 
 # Parte 3 – Build y push de imagenes a ECR (15 min)
 
-Asegurate de estar dentro de `actividad-docker/`.
+Asegurate de estar en la carpeta `exp3-aws/` (la que contiene ambos repositorios).
 
 ## Paso 3.1 – Construir la imagen del backend
 
 ```bash
-docker build -t tareas-backend:1.0 ./backend
+docker build -t tareas-backend:1.0 ./backend_intro_devops
 docker images | grep tareas-backend
 ```
+
+| Flag / parte | Significado |
+|---|---|
+| `docker build` | Construye una imagen Docker a partir de un `Dockerfile` |
+| `-t tareas-backend:1.0` | Asigna nombre (`tareas-backend`) y tag (`1.0`) a la imagen. Sin tag, Docker usa `latest`. |
+| `./backend_intro_devops` | Ruta al contexto de build: carpeta del repo backend, que contiene el `Dockerfile` |
+| `docker images` | Lista todas las imágenes locales |
+| `\| grep tareas-backend` | Filtra la salida para mostrar solo las líneas que contienen `tareas-backend` |
 
 ---
 
@@ -402,12 +561,20 @@ docker tag tareas-backend:1.0 <URI-BACKEND>:1.0
 docker push <URI-BACKEND>:1.0
 ```
 
-Ejemplo con un Account ID real:
+| Comando | Significado |
+|---|---|
+| `docker tag <origen> <destino>` | Crea un alias (tag) sobre una imagen existente sin duplicar los datos. `<origen>` es el nombre local; `<destino>` es el URI de ECR con su tag. |
+| `docker push <URI>:tag` | Sube la imagen (capa por capa) al registro remoto indicado en el URI. Requiere haber hecho `docker login` previamente. |
+
+Ejemplo con un Account ID real (reemplaza `123456789012` con el tuyo):
 
 ```bash
 docker tag tareas-backend:1.0 123456789012.dkr.ecr.us-east-1.amazonaws.com/tareas-backend:1.0
 docker push 123456789012.dkr.ecr.us-east-1.amazonaws.com/tareas-backend:1.0
 ```
+
+> Este bloque es el mismo comando que el anterior, con el URI completo
+> escrito explícitamente. No hay flags adicionales.
 
 Cuando termine, ve a la consola de AWS → ECR → `tareas-backend` → **Images**
 y confirma que aparece la imagen con el tag `1.0`.
@@ -424,10 +591,14 @@ Por ahora construimos el frontend con `localhost` como URL del backend.
 Lo corregiremos en el Paso 5 una vez que tengamos la IP del EC2 backend.
 
 ```bash
-docker build -t tareas-frontend:1.0 ./frontend
+docker build -t tareas-frontend:1.0 ./frontend_intro_devops
 docker tag tareas-frontend:1.0 <URI-FRONTEND>:1.0
 docker push <URI-FRONTEND>:1.0
 ```
+
+> Los flags de `docker build`, `docker tag` y `docker push` son los mismos
+> que en los Pasos 3.1 y 3.2. Aquí se aplican al contexto `./frontend_intro_devops`
+> y al URI del repositorio ECR del frontend.
 
 ---
 
@@ -496,16 +667,39 @@ Guardala — la necesitaras en el Paso 5.
 **Git Bash / macOS / Linux:**
 
 ```bash
+# Quitar permisos excesivos al archivo de clave privada (SSH lo exige)
 chmod 400 ~/devops-key-<TU-NOMBRE>.pem
+
+# Conectarse a la instancia EC2
 ssh -i ~/devops-key-<TU-NOMBRE>.pem ec2-user@<IP-BACKEND>
 ```
+
+| Flag / argumento | Significado |
+|---|---|
+| `chmod 400` | Deja el archivo de solo lectura para el dueño. SSH rechaza claves con permisos abiertos. |
+| `ssh -i` | Indica la clave privada (identity file) a usar para autenticarse. |
+| `ec2-user` | Usuario predeterminado de Amazon Linux 2023 en EC2. |
+| `@<IP-BACKEND>` | IP pública de la instancia EC2 backend. |
 
 **PowerShell (Windows):**
 
 ```powershell
-icacls "C:\Users\TuNombre\devops-key-TuNombre.pem" /inheritance:r /grant:r "$($env:USERNAME):(R)"
-ssh -i "C:\Users\TuNombre\devops-key-TuNombre.pem" ec2-user@<IP-BACKEND>
+# Restringir permisos del archivo .pem para que SSH lo acepte
+icacls "C:\Users\$env:USERNAME\devops-key-<TU-NOMBRE>.pem" /inheritance:r /grant:r "$env:USERNAME:(R)"
+
+# Conectarse a la instancia EC2
+ssh -i "C:\Users\$env:USERNAME\devops-key-<TU-NOMBRE>.pem" ec2-user@<IP-BACKEND>
 ```
+
+| Flag / argumento | Significado |
+|---|---|
+| `icacls ... /inheritance:r` | Elimina los permisos heredados del archivo. |
+| `/grant:r "$env:USERNAME:(R)"` | Otorga solo lectura (`R`) a tu usuario de Windows. |
+| `ssh -i "ruta"` | Mismo flag que en Linux: especifica la clave privada. |
+
+> **¿Dónde está el archivo `.pem`?** Al descargarlo desde la consola de
+> AWS, el navegador lo guarda en `C:\Users\<TuUsuario>\Downloads\`.
+> Puedes moverlo a `C:\Users\<TuUsuario>\` para acortar el comando.
 
 Escribe `yes` cuando pregunte por la huella digital del servidor.
 El prompt de Amazon Linux confirma que estas dentro:
@@ -541,6 +735,18 @@ sudo mkswap /swapfile
 sudo swapon /swapfile
 ```
 
+| Comando | Significado |
+|---|---|
+| `sudo dnf update -y` | Actualiza todos los paquetes instalados. `dnf` es el gestor de paquetes de Amazon Linux 2023 (equivalente a `apt` en Ubuntu). `-y` responde "sí" automáticamente a todas las preguntas. |
+| `sudo dnf install docker docker-compose-plugin -y` | Instala Docker y el plugin de Compose. `docker-compose-plugin` permite usar `docker compose` (sin guion). |
+| `sudo systemctl start docker` | Inicia el servicio Docker ahora mismo. `systemctl` controla los servicios del sistema (systemd). |
+| `sudo systemctl enable docker` | Configura Docker para que arranque automáticamente cada vez que la instancia se reinicie. |
+| `sudo usermod -aG docker ec2-user` | Agrega el usuario `ec2-user` al grupo `docker`. `-a` = append (no reemplaza grupos existentes), `-G docker` = grupo al que se agrega. Evita tener que escribir `sudo` antes de cada comando de Docker. |
+| `sudo dd if=/dev/zero of=/swapfile bs=128M count=8` | Crea un archivo de 1 GB lleno de ceros para usarlo como swap. `if` = input file, `of` = output file, `bs` = block size, `count` = número de bloques (128M × 8 = 1 GB). |
+| `sudo chmod 600 /swapfile` | Restringe el acceso al archivo de swap: solo el propietario (root) puede leer y escribir. Linux exige estos permisos para activar swap. |
+| `sudo mkswap /swapfile` | Formatea el archivo como espacio de swap (escribe la cabecera que Linux necesita). |
+| `sudo swapon /swapfile` | Activa el archivo de swap para que el sistema lo use como memoria adicional. |
+
 Cierra la sesion y reconectate para activar el grupo docker:
 
 ```bash
@@ -555,18 +761,35 @@ docker ps       # responde sin error (lista vacia)
 free -h         # muestra ~1 GB en la fila Swap
 ```
 
+| Comando | Significado |
+|---|---|
+| `docker ps` | Lista los contenedores en ejecución. Sin `-a` solo muestra los activos. Si responde sin error, Docker está corriendo y tu usuario tiene permisos. |
+| `free -h` | Muestra el uso de memoria RAM y swap. `-h` = human-readable (muestra MB/GB en vez de bytes). La fila `Swap` debe mostrar ~1.0G. |
+
 ---
 
 ## Paso 4.5 – Autenticar Docker en el backend EC2 contra ECR
 
 Gracias al **IAM Instance Profile (LabRole)** asignado al crear la instancia,
-la EC2 ya tiene permisos para leer ECR. Solo debes autenticar Docker:
+la EC2 ya tiene permisos para leer ECR. Solo debes autenticar Docker.
+
+Los siguientes comandos se ejecutan **dentro de la sesión SSH** (en el
+terminal conectado a la EC2, no en tu máquina local):
 
 ```bash
 aws ecr get-login-password --region us-east-1 | \
   docker login --username AWS --password-stdin \
   <ACCOUNT-ID>.dkr.ecr.us-east-1.amazonaws.com
 ```
+
+| Parte del comando | Qué hace |
+|---|---|
+| `aws ecr get-login-password` | Pide a AWS un token temporal para el registro ECR |
+| `--region us-east-1` | Región donde creaste los repositorios ECR |
+| `\|` | Pipe: conecta la salida del primer comando con la entrada del segundo |
+| `docker login --username AWS` | Autentica Docker; el usuario siempre es `AWS` para ECR |
+| `--password-stdin` | Recibe la contraseña por stdin (desde el pipe); más seguro que escribirla |
+| URL final | Dominio del registro privado ECR de tu cuenta |
 
 Resultado esperado: `Login Succeeded`
 
@@ -592,6 +815,15 @@ docker run -d \
   <URI-BACKEND>:1.0
 ```
 
+| Flag | Significado |
+|---|---|
+| `docker pull <URI>:1.0` | Descarga la imagen con el tag `1.0` desde ECR al servidor |
+| `docker run -d` | Inicia el contenedor en modo **detached** (en segundo plano; la terminal queda libre) |
+| `--name tareas-backend` | Nombre legible para el contenedor; se usa en `docker stop`, `docker logs`, etc. |
+| `-p 3000:3000` | Mapea el puerto 3000 del host al puerto 3000 del contenedor (`host:contenedor`) |
+| `-e MENSAJE_BIENVENIDA=...` | Inyecta una variable de entorno dentro del contenedor |
+| `-v datos-tareas:/data` | Monta el volumen `datos-tareas` en `/data` dentro del contenedor (persistencia) |
+
 Verifica que esta corriendo:
 
 ```bash
@@ -602,6 +834,11 @@ curl http://localhost:3000/api/tareas
 # debe devolver JSON con las 3 tareas iniciales
 ```
 
+| Comando | Significado |
+|---|---|
+| `docker ps` | Lista contenedores activos. La columna `STATUS` debe decir `Up X seconds/minutes`. |
+| `curl http://localhost:3000/api/tareas` | Hace una petición HTTP GET al endpoint del backend. `curl` es un cliente HTTP de línea de comandos. Si responde con JSON, el backend está funcionando. |
+
 > **Checkpoint 4:** abre `http://<IP-BACKEND>:3000/api/tareas` en tu
 > navegador local. Si ves el JSON, el backend esta corriendo en la nube.
 
@@ -610,11 +847,12 @@ curl http://localhost:3000/api/tareas
 # Parte 5 – Ajustar el frontend y republicar imagen (15 min)
 
 > Vuelve a tu **terminal local** (no la sesion SSH del servidor).
+> Asegúrate de estar en la carpeta `exp3-aws/` antes de ejecutar los comandos.
 
 ## Paso 5.1 – Editar la URL del backend en el frontend
 
 Debes cambiar **una sola línea** en el archivo
-`frontend/src/app/services/tareas.service.ts`:
+`frontend_intro_devops/src/app/services/tareas.service.ts`:
 
 ```
 Antes:   readonly baseUrl = 'http://localhost:3000';
@@ -632,10 +870,10 @@ Sigue las instrucciones para el editor disponible en el laboratorio.
 
 2. En la barra de menú superior: **File → Open Folder…**
 
-3. Navega a la carpeta `frontend_intro_devops` que clonaste en el Paso 1.1.
+3. Navega a la carpeta `exp3-aws/frontend_intro_devops` que clonaste en el Paso 1.1.
    La ruta suele ser:
    ```
-   C:\Users\<TuUsuario>\frontend_intro_devops
+   C:\Users\<TuUsuario>\exp3-aws\frontend_intro_devops
    ```
    Selecciona esa carpeta y haz clic en **Seleccionar carpeta**.
 
@@ -679,7 +917,7 @@ Sigue las instrucciones para el editor disponible en el laboratorio.
 
 1. Abre el **Explorador de archivos** de Windows y navega a:
    ```
-   C:\Users\<TuUsuario>\frontend_intro_devops\src\app\services
+   C:\Users\<TuUsuario>\exp3-aws\frontend_intro_devops\src\app\services
    ```
 
 2. Haz clic derecho sobre `tareas.service.ts` → **Edit with Notepad++**
@@ -703,7 +941,7 @@ Sigue las instrucciones para el editor disponible en el laboratorio.
 
 1. En el **Explorador de archivos**, navega a:
    ```
-   C:\Users\<TuUsuario>\frontend_intro_devops\src\app\services
+   C:\Users\<TuUsuario>\exp3-aws\frontend_intro_devops\src\app\services
    ```
 
 2. Haz clic derecho sobre `tareas.service.ts` → **Abrir con → Bloc de notas**
@@ -739,7 +977,8 @@ readonly baseUrl = 'http://54.234.12.88:3000';
 
 ```bash
 # Reconstruir con la URL del backend correcta
-docker build -t tareas-frontend:2.0 ./frontend
+# Ejecutar desde exp3-aws/ (no desde dentro del repo)
+docker build -t tareas-frontend:2.0 ./frontend_intro_devops
 
 # Etiquetar para ECR
 docker tag tareas-frontend:2.0 <URI-FRONTEND>:2.0
@@ -747,6 +986,10 @@ docker tag tareas-frontend:2.0 <URI-FRONTEND>:2.0
 # Publicar en ECR
 docker push <URI-FRONTEND>:2.0
 ```
+
+> Los flags son los mismos que en los Pasos 3.1 y 3.2.
+> La única diferencia es el tag `2.0`: esta imagen ya tiene la IP real
+> del backend en `baseUrl`, a diferencia de la `1.0` que tenía `localhost`.
 
 En la consola de AWS (ECR → `tareas-frontend` → Images) ahora deben aparecer
 dos versiones: `1.0` (con localhost) y `2.0` (con la IP real del backend).
@@ -808,6 +1051,10 @@ Abre una **segunda terminal** (puedes mantener la sesion del backend abierta):
 ssh -i ~/devops-key-<TU-NOMBRE>.pem ec2-user@<IP-FRONTEND>
 ```
 
+> Los flags `-i` y el usuario `ec2-user` son los mismos que en el Paso 4.3.
+> Solo cambia la IP: aquí apunta a la instancia del **frontend**.
+> Asegúrate de que el archivo `.pem` ya tiene permisos `400` (lo hiciste en el Paso 4.3).
+
 ---
 
 ## Paso 6.4 – Instalar Docker en el frontend EC2
@@ -826,6 +1073,8 @@ sudo mkswap /swapfile
 sudo swapon /swapfile
 ```
 
+> La explicación de cada flag y comando se encuentra en el **Paso 4.4**.
+
 Cierra y reconecta la sesion SSH:
 
 ```bash
@@ -833,6 +1082,12 @@ exit
 ssh -i ~/devops-key-<TU-NOMBRE>.pem ec2-user@<IP-FRONTEND>
 docker ps && free -h
 ```
+
+| Parte | Significado |
+|---|---|
+| `exit` | Cierra la sesión SSH actual. Necesario para que el cambio de grupo `docker` tome efecto. |
+| `ssh -i ... ec2-user@<IP-FRONTEND>` | Vuelve a conectarse a la EC2 del frontend (flags descritos en Paso 4.3). |
+| `docker ps && free -h` | Ejecuta ambos comandos en secuencia. `&&` significa "ejecuta el segundo solo si el primero tuvo éxito". |
 
 ---
 
@@ -854,11 +1109,25 @@ docker run -d \
   <URI-FRONTEND>:2.0
 ```
 
+> El comando `aws ecr get-login-password | docker login` es idéntico al del
+> Paso 4.5 — consulta esa sección para la explicación de cada flag.
+
+| Flag de `docker run` | Significado |
+|---|---|
+| `-d` | Modo detached: el contenedor corre en segundo plano |
+| `--name tareas-frontend` | Nombre legible para referenciar el contenedor en otros comandos |
+| `-p 4200:4200` | Expone el puerto 4200 del contenedor al puerto 4200 del host (la EC2) |
+
 Angular tarda 2-3 minutos en compilar. Sigue los logs:
 
 ```bash
 docker logs -f tareas-frontend
 ```
+
+| Flag | Significado |
+|---|---|
+| `docker logs` | Muestra la salida estándar (stdout/stderr) del contenedor |
+| `-f` | Follow: mantiene el stream abierto en tiempo real (como `tail -f`). Presiona `Ctrl+C` para salir sin detener el contenedor. |
 
 Espera hasta ver:
 
@@ -916,6 +1185,10 @@ gracias al volumen:
 # En la terminal SSH del backend:
 docker restart tareas-backend
 ```
+
+| Comando | Significado |
+|---|---|
+| `docker restart <nombre>` | Detiene y vuelve a iniciar el contenedor indicado. Los volúmenes persisten: los datos en `/data` sobreviven al reinicio. |
 
 Recarga la pagina en el navegador: las tareas deben seguir existiendo.
 
@@ -1019,6 +1292,13 @@ docker volume rm datos-tareas
 exit
 ```
 
+| Comando | Significado |
+|---|---|
+| `docker stop <nombre>` | Envía la señal SIGTERM al contenedor y espera hasta 10 s para que se detenga limpiamente. |
+| `docker rm <nombre>` | Elimina el contenedor detenido. No elimina la imagen ni el volumen. |
+| `docker volume rm datos-tareas` | Elimina el volumen nombrado `datos-tareas`. **Los datos se pierden permanentemente.** |
+| `exit` | Cierra la sesión SSH. |
+
 **Frontend EC2 (terminal SSH del frontend):**
 
 ```bash
@@ -1026,6 +1306,9 @@ docker stop tareas-frontend
 docker rm tareas-frontend
 exit
 ```
+
+> `docker stop` y `docker rm` funcionan igual que en el backend.
+> El frontend no tiene volumen persistente, por lo que no es necesario `docker volume rm`.
 
 ### 2 – Terminar las instancias EC2
 
