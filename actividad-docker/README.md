@@ -401,8 +401,8 @@ docker restart tareas-backend
 docker stop tareas-backend
 docker rm tareas-backend
 
-# Eliminar la imagen
-docker rmi tareas-backend:1.0
+# Eliminar la imagen (OPCIONAL – si lo haces, necesitaras reconstruirla en el Paso 7)
+# docker rmi tareas-backend:1.0
 ```
 
 > **Anota en tu cuaderno** la salida de `docker ps`, `docker logs` y
@@ -436,6 +436,11 @@ docker rm -f tareas-backend
 ```
 
 Luego (linea unica, funciona en las tres terminales):
+
+> **Nota:** si eliminaste la imagen en el Paso 6, reconstruyela primero:
+> ```bash
+> docker build -t tareas-backend:1.0 ./backend
+> ```
 
 ```bash
 docker run -d --name tareas-backend -p 3000:3000 -v datos-tareas:/data tareas-backend:1.0
