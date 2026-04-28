@@ -14,7 +14,26 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+
+# `npm ci` es lo IDEAL en CI (reproducible y mas rapido), pero requiere
+# package-lock.json. El repo frontend_intro_devops original NO trae
+# lockfile, por eso aqui detectamos su presencia y caemos a
+# `npm install` si falta.
+#
+# OJO: aqui SI necesitamos las devDependencies (Angular CLI), por lo
+# tanto NO se usa --omit=dev en esta etapa.
+#
+# Recomendacion: ejecuta `npm install` UNA vez en tu maquina (raiz del
+# repo, fuera de Docker) y commitea el package-lock.json. A partir de
+# ese commit todos los builds usaran `npm ci`.
+RUN if [ -f package-lock.json ]; then \
+      echo ">>> package-lock.json encontrado: usando npm ci"; \
+      npm ci; \
+    else \
+      echo ">>> AVISO: package-lock.json NO encontrado, usando npm install"; \
+      echo ">>> Genera el lockfile con 'npm install' en tu host y commitealo."; \
+      npm install; \
+    fi
 
 COPY . .
 

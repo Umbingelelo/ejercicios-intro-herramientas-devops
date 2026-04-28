@@ -184,6 +184,22 @@ jobs:
 
 ---
 
+## Como leer las indicaciones de "Donde se ejecuta"
+
+A lo largo de la experiencia te indicaremos **explicitamente en que terminal** debe correr cada bloque de comandos. Esto evita que copies un comando en el contexto equivocado:
+
+| Etiqueta | Significado |
+|---|---|
+| **Terminal local (host)** | Tu maquina fisica (Mac/Windows/Linux), con `docker`, `git`, `aws` y `npm` instalados. La gran mayoria de los comandos van aqui. |
+| **Terminal local (host) — dentro de `<repo>/`** | Igual que arriba, pero con `cd <repo>/` ejecutado primero. Solo cambia el `pwd`. |
+| **Dentro del contenedor** | Comandos que abrimos con `docker exec <contenedor> ...` desde la terminal del host. Se ejecutan adentro. |
+| **Navegador web** | Acciones que NO son comandos: clicks en hub.docker.com, GitHub, AWS Console. |
+| **GitHub Actions runner** | Un Ubuntu efimero que GitHub levanta gratis cada vez que haces push a `deploy`. Lo configuras escribiendo el YAML; nunca te conectas a el por SSH. |
+
+> Si una vez exportaste una variable como `DH_USER` o `REGISTRY`, **mantente en la misma ventana de terminal**. Cada nueva ventana parte sin variables.
+
+---
+
 ## Planificacion de las 2 horas
 
 | Bloque | Tiempo | Actividad |
@@ -210,7 +226,10 @@ Vamos a trabajar sobre **forks** de los dos repos de la app de tareas.
 2. Haz clic en **Fork** (arriba a la derecha) en ambos. Quedan en `https://github.com/<TU_USUARIO>/backend_intro_devops` y `https://github.com/<TU_USUARIO>/frontend_intro_devops`.
 3. Crea una carpeta de trabajo y clona **tu fork** (no el original):
 
+> **Donde se ejecuta:** terminal **local de tu maquina** (host), en la carpeta donde quieras tener tus repos.
+
 ```bash
+# Terminal local (host)
 mkdir exp4-registries
 cd exp4-registries
 git clone https://github.com/<TU_USUARIO>/backend_intro_devops.git
@@ -219,7 +238,10 @@ git clone https://github.com/<TU_USUARIO>/frontend_intro_devops.git
 
 4. En cada repo crea la rama `deploy` que va a disparar el pipeline:
 
+> **Donde se ejecuta:** terminal **local (host)**, dentro de `exp4-registries/`.
+
 ```bash
+# Terminal local (host) — dentro de exp4-registries/
 cd backend_intro_devops
 git checkout -b deploy
 cd ../frontend_intro_devops
@@ -229,6 +251,35 @@ cd ..
 
 > **Por que `deploy` y no `main`?** La EA2 lo exige textualmente: "Uso de triggers basados en la rama `deploy`". La idea es que `main` quede como rama estable para revisar codigo y `deploy` como gatillo del pipeline.
 
+---
+
+## Paso 0.5 – Generar `package-lock.json` (3 min) — IMPORTANTE
+
+> **Por que este paso existe:** los repos `backend_intro_devops` y `frontend_intro_devops` **no traen** `package-lock.json` en su estado original. Sin lockfile, `npm ci` (que usaremos dentro del Dockerfile) falla con `Missing package-lock.json`. Generamos el lockfile UNA vez en tu maquina y lo commiteamos: a partir de ahi todos los builds (locales y en GitHub Actions) seran reproducibles.
+
+> **Donde se ejecuta:** terminal **local de tu maquina** (host), parado en `exp4-registries/`. Necesitas Node.js 20 instalado en el host (no dentro de un contenedor).
+
+```bash
+# --- BACKEND ---
+# Terminal local (host) — dentro de exp4-registries/
+cd backend_intro_devops
+npm install                                         # genera package-lock.json
+git add package-lock.json
+git commit -m "chore: agregar package-lock.json (build reproducible)"
+git push origin deploy
+cd ..
+
+# --- FRONTEND --- (tarda mas: muchos paquetes de Angular)
+# Terminal local (host) — dentro de exp4-registries/
+cd frontend_intro_devops
+npm install
+git add package-lock.json
+git commit -m "chore: agregar package-lock.json (build reproducible)"
+git push origin deploy
+cd ..
+```
+
+> **Y si no tienes Node 20 en tu maquina?** Los Dockerfiles de esta experiencia incluyen un fallback: si detectan que falta `package-lock.json` usan `npm install` en lugar de `npm ci`. La build NO se rompe, pero pierdes la garantia de "mismas versiones exactas en cada run". Aun asi, **la mejor practica es generar y commitear el lockfile**.
 
 ---
 
@@ -257,7 +308,16 @@ Vamos a reemplazar todo el archivo por esta version multi-stage. Puedes copiar l
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --omit=dev
+
+# Si existe package-lock.json -> npm ci (reproducible).
+# Si no -> npm install (fallback para que el build no se rompa).
+RUN if [ -f package-lock.json ]; then \
+      npm ci --omit=dev; \
+    else \
+      echo ">>> AVISO: sin package-lock.json, usando npm install"; \
+      npm install --omit=dev; \
+    fi
+
 COPY . .
 
 # ---------- ETAPA 2: runtime ----------
@@ -282,7 +342,7 @@ CMD ["node", "src/server.js"]
 | Cambio | Por que |
 |---|---|
 | `FROM ... AS builder` y `FROM ... AS runtime` | Dos etapas: una para resolver dependencias, otra para correr |
-| `npm ci --omit=dev` en vez de `npm install --omit=dev` | `ci` es estricto: falla si `package-lock.json` no concuerda. Ideal para CI. |
+| `npm ci --omit=dev` (con fallback a `npm install`) | `ci` es estricto: falla si `package-lock.json` no concuerda. Ideal para CI. El bloque `if [ -f package-lock.json ]` permite que el build siga funcionando aunque aun no hayas commiteado el lockfile. |
 | `COPY --from=builder --chown=node:node` | Copia desde la etapa anterior con dueno `node`, no `root` |
 | `RUN mkdir -p /data && chown -R node:node /data` | El usuario `node` debe poder escribir el volumen |
 | `USER node` | Cambia al usuario sin privilegios antes del CMD |
@@ -290,7 +350,10 @@ CMD ["node", "src/server.js"]
 
 ### Probar en local
 
+> **Donde se ejecuta:** terminal **local (host)**, dentro de `backend_intro_devops/`.
+
 ```bash
+# Terminal local (host) — dentro de backend_intro_devops/
 cd backend_intro_devops
 docker build -t tareas-backend:v1.0.0 .
 docker images tareas-backend
@@ -299,7 +362,14 @@ docker images tareas-backend
 Levantalo y verifica que **no corres como root**:
 
 ```bash
+# Terminal local (host)
 docker run -d --name tb-test -p 3000:3000 tareas-backend:v1.0.0
+```
+
+Ahora entra **dentro del contenedor** para confirmar el usuario:
+
+```bash
+# El comando se LANZA en la terminal del host, pero whoami se ejecuta DENTRO del contenedor:
 docker exec tb-test whoami
 # Debe responder: node
 docker exec tb-test id
@@ -309,12 +379,14 @@ docker exec tb-test id
 Verifica que la API sigue respondiendo:
 
 ```bash
+# Terminal local (host)
 curl http://localhost:3000/api/tareas
 ```
 
 Limpia:
 
 ```bash
+# Terminal local (host)
 docker rm -f tb-test
 ```
 
@@ -333,7 +405,16 @@ Reemplaza `frontend_intro_devops/Dockerfile` por esta version (plantilla en `exp
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+
+# OJO: aqui SI necesitamos devDependencies (Angular CLI), por lo
+# tanto NO se usa --omit=dev en esta etapa.
+RUN if [ -f package-lock.json ]; then \
+      npm ci; \
+    else \
+      echo ">>> AVISO: sin package-lock.json, usando npm install"; \
+      npm install; \
+    fi
+
 COPY . .
 RUN npm run build && \
     mkdir -p /app/build-output && \
@@ -374,7 +455,10 @@ La imagen oficial `nginx:alpine` corre como `root` para poder escuchar en el pue
 
 ### Probar en local
 
+> **Donde se ejecuta:** terminal **local (host)**, dentro de `frontend_intro_devops/`.
+
 ```bash
+# Terminal local (host) — dentro de frontend_intro_devops/
 cd frontend_intro_devops
 docker build -t tareas-frontend:v1.0.0 .
 docker images tareas-frontend
@@ -383,16 +467,22 @@ docker images tareas-frontend
 Compara el tamano con la imagen vieja (si la conservaste): la nueva debe ser **decenas de veces mas pequena**.
 
 ```bash
+# Terminal local (host)
 docker run -d --name tf-test -p 4200:8080 tareas-frontend:v1.0.0
+
+# Esto se LANZA en el host pero se ejecuta DENTRO del contenedor:
 docker exec tf-test whoami
 # Debe responder: nginx
 ```
 
-Abre http://localhost:4200 en el navegador. Veras la app Angular cargada (recuerda que el backend tiene que estar corriendo aparte para que se vean las tareas).
+**Navegador web:** abre `http://localhost:4200` (recuerda que el backend tiene que estar corriendo aparte para que se vean las tareas).
+
+> **Tip:** mantenlos corriendo a la vez en dos terminales (o en background): backend en `:3000` y frontend en `:4200` (mapeado al `:8080` interno de Nginx).
 
 Limpia:
 
 ```bash
+# Terminal local (host)
 docker rm -f tf-test
 ```
 
@@ -404,7 +494,10 @@ docker rm -f tf-test
 
 Aun no estamos publicando nada. Solo dejamos los Dockerfiles preparados para cuando llegue el pipeline.
 
+> **Donde se ejecuta:** terminal **local (host)**, partiendo desde `exp4-registries/`.
+
 ```bash
+# Terminal local (host) — dentro de exp4-registries/
 cd backend_intro_devops
 git add Dockerfile
 git commit -m "feat(docker): multi-stage build con usuario no root"
@@ -439,9 +532,13 @@ git push origin deploy
 
 ## Paso 2.2 – Login desde tu terminal (2 min)
 
+> **Donde se ejecuta:** terminal **local (host)**, en cualquier carpeta.
+
 ```bash
-docker login -u <TU_USUARIO_DOCKERHUB>
-# Cuando pida password, pega el TOKEN (no tu contrasena).
+# Terminal local (host)
+# Reemplaza tuusuario por tu handle real (sin <>) y en minusculas.
+docker login -u tuusuario
+# Cuando pida password, pega el ACCESS TOKEN (no tu contrasena).
 ```
 
 Deberias ver:
@@ -454,46 +551,73 @@ Login Succeeded
 
 Una imagen puede tener multiples tags. Es lo que hace que `:latest`, `:v1.0.0` y `:<sha>` apunten al mismo binario sin duplicarlo.
 
+> **Cuidado con la variable `USER`.** En Linux y macOS `USER` es una variable de entorno **del sistema operativo** que ya contiene tu nombre de usuario del SO (por ejemplo `cristian`). Si la pisas mal, `docker tag` falla con `error parsing reference: ... is not a valid repository/tag` (porque tu username del SO puede tener mayusculas o caracteres invalidos para un repo de Docker Hub). Por eso aqui usamos un nombre **distinto**: `DH_USER`.
+
+> **Donde se ejecuta:** terminal **local (host)**, en `exp4-registries/` (la carpeta padre, donde estan los dos repos clonados).
+
 ```bash
-USER=<TU_USUARIO_DOCKERHUB>
+# Terminal local (host) — dentro de exp4-registries/
+# IMPORTANTE: reemplaza tuusuario por tu handle real de Docker Hub,
+# en MINUSCULAS y SIN los simbolos <>.
+DH_USER=tuusuario
+
 SHA=$(git -C backend_intro_devops rev-parse --short HEAD)
+SHA_FE=$(git -C frontend_intro_devops rev-parse --short HEAD)
+
+# Sanity check: si esto imprime vacio, no continues.
+echo "DH_USER=$DH_USER  SHA=$SHA  SHA_FE=$SHA_FE"
 
 # Backend
-docker tag tareas-backend:v1.0.0 $USER/tareas-backend:v1.0.0
-docker tag tareas-backend:v1.0.0 $USER/tareas-backend:latest
-docker tag tareas-backend:v1.0.0 $USER/tareas-backend:$SHA
+docker tag tareas-backend:v1.0.0 $DH_USER/tareas-backend:v1.0.0
+docker tag tareas-backend:v1.0.0 $DH_USER/tareas-backend:latest
+docker tag tareas-backend:v1.0.0 $DH_USER/tareas-backend:$SHA
 
 # Frontend
-SHA_FE=$(git -C frontend_intro_devops rev-parse --short HEAD)
-docker tag tareas-frontend:v1.0.0 $USER/tareas-frontend:v1.0.0
-docker tag tareas-frontend:v1.0.0 $USER/tareas-frontend:latest
-docker tag tareas-frontend:v1.0.0 $USER/tareas-frontend:$SHA_FE
+docker tag tareas-frontend:v1.0.0 $DH_USER/tareas-frontend:v1.0.0
+docker tag tareas-frontend:v1.0.0 $DH_USER/tareas-frontend:latest
+docker tag tareas-frontend:v1.0.0 $DH_USER/tareas-frontend:$SHA_FE
 ```
 
-> **PowerShell (Windows):** sustituye la asignacion `USER=...` por `$USER = "<TU_USUARIO>"` y `$SHA = git -C backend_intro_devops rev-parse --short HEAD`.
+> **PowerShell (Windows):** sustituye la asignacion por:
+>
+> ```powershell
+> $DH_USER = "tuusuario"
+> $SHA    = (git -C backend_intro_devops rev-parse --short HEAD)
+> $SHA_FE = (git -C frontend_intro_devops rev-parse --short HEAD)
+> docker tag tareas-backend:v1.0.0 "$DH_USER/tareas-backend:v1.0.0"
+> # ... y asi con los demas
+> ```
+>
+> Si **igual** prefieres reusar `USER`, en bash debes hacerlo con comillas y declararlo *exportado de nuevo* en la sesion actual: `export USER="tuusuario"`. Pero recomendamos `DH_USER` para evitar la colision.
 
 ## Paso 2.4 – Push (5 min)
 
-```bash
-docker push $USER/tareas-backend:v1.0.0
-docker push $USER/tareas-backend:latest
-docker push $USER/tareas-backend:$SHA
+> **Donde se ejecuta:** la **misma terminal local** del paso anterior (mantiene `$DH_USER`, `$SHA`, `$SHA_FE`). Si abriste una ventana nueva, repite las asignaciones del Paso 2.3.
 
-docker push $USER/tareas-frontend:v1.0.0
-docker push $USER/tareas-frontend:latest
-docker push $USER/tareas-frontend:$SHA_FE
+```bash
+# Terminal local (host) — misma sesion que el paso 2.3
+docker push $DH_USER/tareas-backend:v1.0.0
+docker push $DH_USER/tareas-backend:latest
+docker push $DH_USER/tareas-backend:$SHA
+
+docker push $DH_USER/tareas-frontend:v1.0.0
+docker push $DH_USER/tareas-frontend:latest
+docker push $DH_USER/tareas-frontend:$SHA_FE
 ```
 
 Observa el output: las capas que **comparten** las imagenes (por ejemplo `node:20-alpine`) se suben **una sola vez**. Por eso el segundo push es muy rapido.
 
 ## Paso 2.5 – Verificar desde la web y desde otra maquina (3 min)
 
-1. Abre `https://hub.docker.com/r/<TU_USUARIO>/tareas-backend`. Veras tu repo publico con los tres tags listados en la pestana **Tags**.
+1. **Navegador web:** abre `https://hub.docker.com/r/tuusuario/tareas-backend` (cambia `tuusuario` por tu handle). Veras tu repo publico con los tres tags listados en la pestana **Tags**.
 2. Verifica que **cualquier maquina** puede descargar tu imagen sin login (porque es publica):
 
+> **Donde se ejecuta:** terminal **local (host)**, idealmente en una **ventana nueva** para confirmar que funciona sin sesion previa.
+
 ```bash
+# Terminal local (host) — ventana NUEVA o tras hacer logout
 docker logout
-docker pull <TU_USUARIO>/tareas-backend:v1.0.0
+docker pull tuusuario/tareas-backend:v1.0.0
 ```
 
 > **Captura para evidencias:** la pestana **Tags** mostrando `v1.0.0`, `latest` y el SHA, con timestamps cercanos.
@@ -509,17 +633,21 @@ docker pull <TU_USUARIO>/tareas-backend:v1.0.0
 
 ## Paso 3.1 – Verificar credenciales y crear repos (5 min)
 
+> **Donde se ejecuta TODO el Paso 3:** terminal **local (host)** con el AWS CLI configurado. NO se ejecuta en EC2 ni dentro de un contenedor.
+
 Si ya tienes el AWS CLI configurado de la Experiencia 3, valida:
 
 ```bash
+# Terminal local (host)
 aws sts get-caller-identity
 ```
 
-Si responde `ExpiredTokenException`, regenera credenciales desde **AWS Details -> AWS CLI** en el Learner Lab y vuelve a pegarlas en `~/.aws/credentials`.
+Si responde `ExpiredTokenException`, regenera credenciales desde **AWS Details -> AWS CLI** en el Learner Lab (navegador web) y vuelve a pegarlas en `~/.aws/credentials`.
 
 Crea los repositorios (si aun no existen):
 
 ```bash
+# Terminal local (host)
 aws ecr create-repository --repository-name tareas-backend  --region us-east-1
 aws ecr create-repository --repository-name tareas-frontend --region us-east-1
 ```
@@ -527,14 +655,19 @@ aws ecr create-repository --repository-name tareas-frontend --region us-east-1
 Anota tu **Account ID** (12 digitos):
 
 ```bash
+# Terminal local (host)
 aws sts get-caller-identity --query Account --output text
 ```
 
 ## Paso 3.2 – Login y tag triple (5 min)
 
+> **Donde se ejecuta:** terminal **local (host)**, en `exp4-registries/`.
+
 ```bash
+# Terminal local (host) — dentro de exp4-registries/
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 REGISTRY=${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com
+echo "REGISTRY=$REGISTRY"   # debe verse algo como 1234567890.dkr.ecr.us-east-1.amazonaws.com
 
 aws ecr get-login-password --region us-east-1 \
   | docker login --username AWS --password-stdin $REGISTRY
@@ -554,7 +687,10 @@ docker tag tareas-frontend:v1.0.0 $REGISTRY/tareas-frontend:$SHA_FE
 
 ## Paso 3.3 – Push y verificacion (5 min)
 
+> **Donde se ejecuta:** la **misma terminal local** del paso anterior (mantiene `$REGISTRY`, `$SHA`, `$SHA_FE`).
+
 ```bash
+# Terminal local (host) — misma sesion que el paso 3.2
 docker push $REGISTRY/tareas-backend:v1.0.0
 docker push $REGISTRY/tareas-backend:latest
 docker push $REGISTRY/tareas-backend:$SHA
@@ -564,7 +700,7 @@ docker push $REGISTRY/tareas-frontend:latest
 docker push $REGISTRY/tareas-frontend:$SHA_FE
 ```
 
-En la consola de AWS -> **ECR -> tareas-backend -> Images**, deberias ver los tres tags apuntando al **mismo Image Digest** (porque son el mismo binario con tres etiquetas).
+**Navegador web:** en la consola de AWS -> **ECR -> tareas-backend -> Images**, deberias ver los tres tags apuntando al **mismo Image Digest** (porque son el mismo binario con tres etiquetas).
 
 ## Paso 3.4 – Simular un cambio y publicar `v1.0.1` (5 min)
 
@@ -578,7 +714,10 @@ const MENSAJE_BIENVENIDA = process.env.MENSAJE_BIENVENIDA || 'API de Tareas v1.0
 
 2. Reconstruye y publica con el tag nuevo:
 
+> **Donde se ejecuta:** terminal **local (host)**, dentro de `backend_intro_devops/`. Reusa la sesion donde ya hiciste `aws ecr get-login-password` (mantiene `$REGISTRY`).
+
 ```bash
+# Terminal local (host) — dentro de backend_intro_devops/
 cd backend_intro_devops
 docker build -t tareas-backend:v1.0.1 .
 docker tag tareas-backend:v1.0.1 $REGISTRY/tareas-backend:v1.0.1
@@ -726,17 +865,21 @@ Y agrega como secrets:
 
 ## Paso 4.4 – Commit y push de los workflows (10 min)
 
+> **Donde se ejecuta:** terminal **local (host)**, dentro de `backend_intro_devops/`. Repite lo mismo en `frontend_intro_devops/`.
+
 ```bash
+# Terminal local (host) — dentro de backend_intro_devops/
 cd backend_intro_devops
 mkdir -p .github/workflows
-# (copia los archivos de plantilla aqui)
+# Copia aqui los YAML desde experiencia-2.4/ejemplos/workflows/
+# (build-and-push-dockerhub.yml y, opcional, build-and-push-ecr.yml)
 git checkout deploy
 git add .github/
 git commit -m "ci(actions): pipeline build+push a Docker Hub y ECR"
 git push origin deploy
 ```
 
-> **Inmediatamente** despues del push, ve a tu repo en GitHub -> pestana **Actions**. Veras el workflow corriendo en tiempo real.
+> **Navegador web:** **inmediatamente** despues del push, ve a tu repo en GitHub -> pestana **Actions**. Veras el workflow corriendo en tiempo real (el job se ejecuta en un **runner** de GitHub, no en tu maquina).
 
 
 ---
@@ -762,7 +905,10 @@ Edita algo simple en el codigo. Por ejemplo en `backend_intro_devops/src/server.
 const MENSAJE_BIENVENIDA = process.env.MENSAJE_BIENVENIDA || 'API de Tareas - desplegado por Actions';
 ```
 
+> **Donde se ejecuta:** terminal **local (host)**, dentro de `backend_intro_devops/`.
+
 ```bash
+# Terminal local (host) — dentro de backend_intro_devops/
 git add src/server.js
 git commit -m "chore: actualizar mensaje de bienvenida (test pipeline)"
 git push origin deploy
@@ -777,9 +923,12 @@ Vuelve a Actions: aparece un **nuevo run** automaticamente. Observa que:
 
 Desde tu maquina local, descarga la imagen recien publicada y correla:
 
+> **Donde se ejecuta:** terminal **local (host)**, en cualquier carpeta. Reemplaza `tuusuario` por tu handle real (sin `<>`).
+
 ```bash
-docker pull <TU_USUARIO>/tareas-backend:latest
-docker run --rm -p 3000:3000 <TU_USUARIO>/tareas-backend:latest
+# Terminal local (host)
+docker pull tuusuario/tareas-backend:latest
+docker run --rm -p 3000:3000 tuusuario/tareas-backend:latest
 ```
 
 Abre http://localhost:3000 -> deberias ver el nuevo mensaje.
@@ -826,8 +975,10 @@ Elige **uno** y documentalo en `respuestas.md`:
 | `EACCES: permission denied, mkdir '/data'` al iniciar el contenedor | Olvidaste `chown -R node:node /data` antes del `USER node` | Revisa el orden de instrucciones en el Dockerfile |
 | `nginx: [emerg] bind() to 0.0.0.0:80 failed (13: Permission denied)` | Estas usando `nginx:alpine` (root) y trataste de sacarle el USER root | Cambia a `nginxinc/nginx-unprivileged` y publica en `8080` |
 | El build de Angular falla con `Could not find /app/dist/...` | El nombre de la subcarpeta de `dist/` no coincide con `angular.json` | Revisa la salida de `ng build`: la subcarpeta es la que dice `outputPath` |
+| El build del frontend falla con `ng: not found` o `@angular/cli` ausente | Usaste `--omit=dev` en la etapa builder | Asegurate de que el `RUN if ... npm ci ...` del **frontend** NO incluya `--omit=dev` (a diferencia del backend). Angular CLI esta en devDependencies y se necesita para `ng build`. |
+| `docker tag` o `docker push` fallan con `error parsing reference: "..." is not a valid repository/tag` | (1) Pisaste `USER` con un valor con mayusculas o caracteres invalidos; (2) copiaste el placeholder literal `<TU_USUARIO_DOCKERHUB>` con los `<>`; (3) la variable quedo vacia | Renombra la variable a `DH_USER` (ver Paso 2.3) y verifica con `echo "DH_USER=$DH_USER"`. Recuerda que en Linux/macOS `USER` ya existe como variable del SO. Los nombres de repo en Docker Hub deben ser **minusculas**. |
 | La imagen pesa 1+ GB en el frontend | Olvidaste cambiar el Dockerfile a multi-stage; sigue usando `ng serve` | Reemplaza el Dockerfile por la version con builder + `nginx-unprivileged` |
-| `npm ci` falla con `Missing package-lock.json` | Tu repo no tiene lockfile | Ejecuta `npm install` localmente, commitea el `package-lock.json`, o cambia a `npm install` en el Dockerfile |
+| `npm ci` falla con `Missing package-lock.json` o `npm error code EUSAGE` | Los repos `backend_intro_devops` y `frontend_intro_devops` originales **NO** traen lockfile | **Solucion 1 (recomendada):** corre `npm install` en tu host (en la raiz de cada repo, fuera de Docker), commitea el `package-lock.json` y vuelve a buildear (ver Paso 0.5). **Solucion 2:** los Dockerfiles de esta experiencia traen un fallback `if [ -f package-lock.json ]` que cae a `npm install`; si copias el de `experiencia-2.4/ejemplos/` no deberias ver este error. Si igual lo ves, revisa que tu `.dockerignore` NO este excluyendo `package-lock.json`. |
 
 ### Especificos de GitHub Actions
 
@@ -910,7 +1061,10 @@ backend_intro_devops/                     frontend_intro_devops/
 
 Si quieres dejar la maquina como al principio:
 
+> **Donde se ejecuta:** terminal **local (host)**.
+
 ```bash
+# Terminal local (host)
 docker logout
 docker rmi $(docker images "tareas-*" -q) 2>/dev/null
 docker system prune -f

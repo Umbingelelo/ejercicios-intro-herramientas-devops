@@ -19,9 +19,25 @@ WORKDIR /app
 COPY package*.json ./
 
 # `npm ci` es mas estricto y reproducible que `npm install`:
-# falla si package-lock.json no concuerda. Ideal en CI.
-# Si tu repo aun no tiene package-lock.json, puedes usar `npm install --omit=dev`.
-RUN npm ci --omit=dev
+# falla si package-lock.json no concuerda. Es lo IDEAL en CI.
+#
+# IMPORTANTE: el repo backend_intro_devops original NO trae
+# package-lock.json, por eso aqui detectamos su presencia y caemos a
+# `npm install` si falta. Asi el build no se rompe a quien aun no haya
+# generado el lockfile.
+#
+# Recomendacion: ejecuta `npm install` UNA vez en tu maquina (en la
+# raiz del repo, FUERA de Docker) y commitea el package-lock.json
+# resultante. A partir de ese commit todos los builds usaran `npm ci`
+# (reproducible y mas rapido).
+RUN if [ -f package-lock.json ]; then \
+      echo ">>> package-lock.json encontrado: usando npm ci (reproducible)"; \
+      npm ci --omit=dev; \
+    else \
+      echo ">>> AVISO: package-lock.json NO encontrado, usando npm install --omit=dev"; \
+      echo ">>> Genera el lockfile con 'npm install' en tu host y commitealo."; \
+      npm install --omit=dev; \
+    fi
 
 # Resto del codigo
 COPY . .
