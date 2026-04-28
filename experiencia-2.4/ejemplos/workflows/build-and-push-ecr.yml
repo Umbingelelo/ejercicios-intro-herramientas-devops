@@ -1,0 +1,81 @@
+# ============================================================
+# .github/workflows/build-and-push-ecr.yml
+# Experiencia 4 (BONUS) - Pipeline CI: build + push a Amazon ECR
+#
+# Que hace:
+#   1. Se dispara con push a la rama `deploy` (o manualmente).
+#   2. Configura credenciales AWS (Academy: temporales).
+#   3. Hace login en ECR.
+#   4. Build + push con tres tags: `vN.N.N`, `latest` y SHA del commit.
+#
+# Secrets requeridos:
+#   - AWS_ACCESS_KEY_ID
+#   - AWS_SECRET_ACCESS_KEY
+#   - AWS_SESSION_TOKEN          (obligatorio en AWS Academy)
+#
+# Variables de repo (vars):
+#   - AWS_REGION                  por ejemplo us-east-1
+#   - ECR_REPOSITORY              por ejemplo tareas-backend (creado previamente)
+#
+# Atencion AWS Academy: las credenciales temporales expiran cada ~4 horas.
+# Si el workflow falla con `ExpiredTokenException`, regenera credenciales
+# desde "AWS Details -> AWS CLI" y actualiza los tres secrets.
+# ============================================================
+
+name: CI - Build and push to Amazon ECR
+
+on:
+  push:
+    branches: [ "deploy" ]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY || 'tareas-backend' }}
+  IMAGE_VERSION: "v1.0.0"
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout del codigo
+        uses: actions/checkout@v4
+
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:    ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Login en Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build y push (ECR)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_VERSION }}
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Resumen
+        run: |
+          echo "### Imagen publicada en ECR" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_VERSION }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY

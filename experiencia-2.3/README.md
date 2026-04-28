@@ -511,15 +511,16 @@ y repega el nuevo bloque desde AWS Details.
 ```bash
 aws ecr get-login-password --region us-east-1 | \
   docker login --username AWS --password-stdin \
-  <ACCOUNT-ID>.dkr.ecr.us-east-1.amazonaws.com
+  $(aws sts get-caller-identity --query Account --output text).dkr.ecr.us-east-1.amazonaws.com
 ```
 
 **PowerShell (Windows):**
 
 ```powershell
+$ACCOUNT_ID = aws sts get-caller-identity --query Account --output text
 aws ecr get-login-password --region us-east-1 |
   docker login --username AWS --password-stdin `
-  <ACCOUNT-ID>.dkr.ecr.us-east-1.amazonaws.com
+  "$ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com"
 ```
 
 > En PowerShell, la continuación de línea usa el backtick `` ` `` en vez
@@ -536,7 +537,7 @@ aws ecr get-login-password --region us-east-1 |
 | `docker login` | Autentica Docker contra un registro de imágenes |
 | `--username AWS` | Usuario estándar que exige ECR (siempre es literalmente `AWS`) |
 | `--password-stdin` | Lee la contraseña desde stdin en vez de pedirla interactiva (más seguro) |
-| `<ACCOUNT-ID>.dkr.ecr...` | URL del registro privado ECR de tu cuenta |
+| `$(aws sts get-caller-identity ...)` | Obtiene el Account ID automáticamente desde la CLI — así no hay que buscarlo ni escribirlo a mano. El resultado se inserta directamente en la URL del registro ECR. |
 
 Resultado esperado: `Login Succeeded`
 ---
@@ -822,7 +823,7 @@ terminal conectado a la EC2, no en tu máquina local):
 ```bash
 aws ecr get-login-password --region us-east-1 | \
   docker login --username AWS --password-stdin \
-  <ACCOUNT-ID>.dkr.ecr.us-east-1.amazonaws.com
+  $(aws sts get-caller-identity --query Account --output text).dkr.ecr.us-east-1.amazonaws.com
 ```
 
 | Parte del comando | Qué hace |
@@ -832,7 +833,7 @@ aws ecr get-login-password --region us-east-1 | \
 | `\|` | Pipe: conecta la salida del primer comando con la entrada del segundo |
 | `docker login --username AWS` | Autentica Docker; el usuario siempre es `AWS` para ECR |
 | `--password-stdin` | Recibe la contraseña por stdin (desde el pipe); más seguro que escribirla |
-| URL final | Dominio del registro privado ECR de tu cuenta |
+| `$(aws sts get-caller-identity --query Account --output text)` | Subshell que obtiene el Account ID automáticamente. Se inserta en la URL del registro. Evita errores de tipeo al copiar el ID de la consola. |
 
 Resultado esperado: `Login Succeeded`
 
@@ -1137,7 +1138,7 @@ docker ps && free -h
 # Autenticar contra ECR (mismo comando que en el backend)
 aws ecr get-login-password --region us-east-1 | \
   docker login --username AWS --password-stdin \
-  <ACCOUNT-ID>.dkr.ecr.us-east-1.amazonaws.com
+  $(aws sts get-caller-identity --query Account --output text).dkr.ecr.us-east-1.amazonaws.com
 
 # Descargar la imagen del frontend (tag 2.0, con la IP del backend)
 docker pull <URI-FRONTEND>:2.0
