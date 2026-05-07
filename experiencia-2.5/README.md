@@ -717,8 +717,42 @@ repository secret**.
 | `EC2_BACKEND_HOST`  | IP **pública** de `casino-backend`          |
 | `EC2_DATABASE_HOST` | IP **pública** de `casino-database`         |
 | `DB_HOST_PRIVATE`   | IP **privada** de `casino-database` (la del VPC) |
-| `DB_PASSWORD`       | Cadena aleatoria larga (la usa Postgres)    |
-| `JWT_SECRET`        | Otra cadena aleatoria larga                 |
+| `DB_PASSWORD`       | **Ustedes la inventan** — ver nota abajo    |
+| `JWT_SECRET`        | **Ustedes la inventan** — ver nota abajo    |
+
+> 🔑 **`DB_PASSWORD` y `JWT_SECRET` no vienen de ningún paso anterior.**
+> Son cadenas secretas que ustedes eligen al momento de crear los Secrets.
+> Lo único importante es que sean **largas y aleatorias**, y que las
+> guarden en un lugar seguro porque las van a referenciar en los
+> workflows.
+>
+> Para generar una buena cadena aleatoria:
+>
+> ```bash
+> # Mac / Linux / Git Bash:
+> openssl rand -base64 32
+> # ejemplo de salida: 7xQk9Lp2mNvR4sT8wZ3yA6bC1eF0dG5hJiKlMnOpQrS=
+> ```
+>
+> ```powershell
+> # PowerShell:
+> [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Max 256 }))
+> ```
+>
+> Ejecutá el comando **dos veces** y guardá una salida para `DB_PASSWORD`
+> y otra para `JWT_SECRET`. Esos son los valores que pegan en los
+> Secrets de GitHub.
+>
+> ⚠️ **`DB_PASSWORD` debe ser EXACTAMENTE la misma** en los dos lugares
+> donde se usa:
+>
+> - el Secret `DB_PASSWORD` (este paso, lo lee `deploy-backend.yml` para
+>   pasarlo al backend como variable de entorno),
+> - y se inyecta como `POSTGRES_PASSWORD` cuando el workflow
+>   `deploy-db.yml` levanta Postgres en la EC2-database (paso 12.2).
+>
+> Si no coinciden, el backend tirará error `28000 — invalid_authorization`
+> al intentar conectarse a la BD.
 
 **Solo en el repo del frontend:**
 
