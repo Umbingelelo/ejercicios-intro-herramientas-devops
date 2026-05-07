@@ -20,6 +20,7 @@ provocará que GitHub Actions, sin que ustedes toquen una sola consola más:
 2. la suba a **Amazon ECR** (registro privado dentro de su cuenta AWS),
 3. se conecte por SSH a la **EC2 del frontend** y haga `docker pull` + `docker run`,
 4. y deje el casino visible en el navegador con el cambio recién hecho.
+
 Lo mismo ocurre con el backend (en su propia EC2) y con la base de
 datos (en su propia EC2). **Tres servicios, tres instancias, tres
 security groups distintos**, todo orquestado desde GitHub Actions.
@@ -62,7 +63,7 @@ ejecutar de verdad.
               │  in: 22 (mi IP) + 5432 desde SG-backend │
               │  Volumen Docker: pg_data                │
               └────────────────────────────────────────┘
- 
+
               ┌────────────────────────────────────────┐
               │  Amazon ECR (privado)                   │
               │   ├── casino-frontend                   │
@@ -102,6 +103,7 @@ Cada repo trae el código pero **no** trae:
 - `Dockerfile` (uno para front, dos en el repo del back: backend y BD)
 - `default.conf.template` (config de Nginx con reverse proxy)
 - `.github/workflows/*.yml`
+
 Ese es el trabajo del ejercicio.
 
 ---
@@ -136,11 +138,11 @@ herramientas instaladas, salten al paso 4.
 ```bash
 # 1) Homebrew (si no lo tienen)
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
- 
+
 # 2) Herramientas
 brew install git node@20 awscli
 brew install --cask docker visual-studio-code
- 
+
 # 3) Levantar Docker Desktop una vez (icono en la barra superior)
 # 4) Verificar
 git --version
@@ -173,16 +175,16 @@ aws --version
 
 ```powershell
 # Ejecutar PowerShell como Administrador
- 
+
 # 1) Instalar winget (Windows 11 lo trae; Windows 10 instalarlo desde Microsoft Store: "App Installer")
- 
+
 # 2) Herramientas
 winget install --id Git.Git -e --silent
 winget install --id OpenJS.NodeJS.LTS -e --silent
 winget install --id Docker.DockerDesktop -e --silent
 winget install --id Amazon.AWSCLI -e --silent
 winget install --id Microsoft.VisualStudioCode -e --silent
- 
+
 # 3) Reiniciar PowerShell (para que el PATH tome los binarios nuevos)
 exit
 ```
@@ -256,12 +258,12 @@ En la carpeta donde guardan proyectos del curso (ejemplo:
 cd ~/Documents/devops
 git clone https://github.com/<su-usuario>/backend_intro_devops_casino.git
 git clone https://github.com/<su-usuario>/frontend_intro_devops_casino.git
- 
+
 cd backend_intro_devops_casino
 git checkout -b dev
 git push -u origin dev
 cd ..
- 
+
 cd frontend_intro_devops_casino
 git checkout -b dev
 git push -u origin dev
@@ -283,7 +285,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY src ./src
- 
+
 # ---------- Etapa runtime ----------
 FROM node:20-alpine AS runtime
 WORKDIR /app
@@ -331,16 +333,30 @@ RUN npm ci
 COPY . .
 RUN npm run build
 # Salida real de Angular 17: dist/casino-frontend/browser/
- 
+
 # ---------- Etapa runtime: servir con Nginx ----------
 FROM nginx:alpine AS runtime
-# Borrar la config default de Nginx para no chocar con la nuestra.
-RUN rm -f /etc/nginx/conf.d/default.conf
-# La imagen oficial nginx:alpine corre envsubst sobre los archivos
-# que esten en /etc/nginx/templates/*.template y los emite a
-# /etc/nginx/conf.d/<mismoNombre>.conf al arrancar el contenedor.
+
+# 1) Limpiar la imagen base:
+#    - Borramos el index.html "Welcome to nginx" que viene por defecto
+#      en /usr/share/nginx/html (sino lo veriamos en pantalla).
+#    - Borramos el default.conf que viene en /etc/nginx/conf.d/ para
+#      que no choque con el que nuestro template va a generar.
+RUN rm -rf /usr/share/nginx/html/* \
+ && rm -f /etc/nginx/conf.d/default.conf
+
+# 2) Template de Nginx. La imagen oficial nginx:alpine corre envsubst
+#    sobre archivos en /etc/nginx/templates/*.template al arrancar el
+#    contenedor y los emite como /etc/nginx/conf.d/<mismoNombre>.conf.
 COPY default.conf.template /etc/nginx/templates/default.conf.template
-COPY --from=builder /app/dist/casino-frontend/browser /usr/share/nginx/html
+
+# 3) Estaticos de Angular. El "/." final es CRITICO: fuerza a copiar
+#    el CONTENIDO de browser/ a /usr/share/nginx/html/ y NO la carpeta
+#    browser entera. Sin el "/.", podriamos terminar con
+#    /usr/share/nginx/html/browser/index.html y se serviria el index
+#    default de Nginx.
+COPY --from=builder /app/dist/casino-frontend/browser/. /usr/share/nginx/html/
+
 EXPOSE 80
 ```
 
@@ -352,10 +368,10 @@ En la **raíz** del repo del frontend, junto al `Dockerfile`:
 server {
     listen 80;
     server_name _;
- 
+
     root /usr/share/nginx/html;
     index index.html;
- 
+
     # Reverse proxy hacia el backend (otra EC2, IP privada).
     # ${BACKEND_HOST} es una variable de entorno que pasamos al
     # 'docker run' en el deploy (-e BACKEND_HOST=...).
@@ -367,12 +383,12 @@ server {
         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header   X-Forwarded-Proto $scheme;
     }
- 
+
     # Health del backend a traves del proxy
     location /health {
         proxy_pass http://${BACKEND_HOST}:3000/health;
     }
- 
+
     # Single Page App: cualquier ruta no encontrada → index.html
     # (necesario para que /lobby, /slots, /blackjack funcionen al
     # recargar la pagina).
@@ -396,6 +412,22 @@ El archivo `src/environments/environment.prod.ts` viene con
 hará llamadas a **rutas relativas** (`/api/auth/login`), que aterrizan
 en el mismo Nginx, que las reenvía al backend. No hay que tocarlo.
 
+#### 5.4 Verificación rápida del Dockerfile del frontend (antes de empujar)
+
+Si pueden correr Docker en local, hagan este chequeo de 30 segundos
+para evitar el error más común ("Welcome to nginx"):
+
+```bash
+# Buildear la imagen
+docker build -t casino-frontend:dev frontend_intro_devops_casino
+
+# Confirmar que el index.html que va a servir Nginx es el de Angular
+# (debe decir "Casino DevOps", NO "Welcome to nginx!")
+docker run --rm casino-frontend:dev sh -c \
+  "grep -o '<title>[^<]*</title>' /usr/share/nginx/html/index.html"
+# Salida esperada: <title>Casino DevOps</title>
+```
+
 ### Paso 6 — Probar las imágenes en local (antes de tocar AWS)
 
 > 🍎 **Mac M1/M2/M3:** agreguen `--platform linux/amd64` a los
@@ -407,7 +439,7 @@ en el mismo Nginx, que las reenvía al backend. No hay que tocarlo.
 ```bash
 # 0) Una red para que los 3 contenedores se vean por nombre
 docker network create casino-net
- 
+
 # 1) BASE DE DATOS
 docker build -t casino-db:dev backend_intro_devops_casino/db
 docker volume create pg_data
@@ -416,7 +448,7 @@ docker run -d --name casino-db --network casino-net \
   -v pg_data:/var/lib/postgresql/data \
   -p 5432:5432 \
   casino-db:dev
- 
+
 # 2) BACKEND (apuntando al contenedor de la BD por nombre 'casino-db')
 docker build -t casino-backend:dev backend_intro_devops_casino
 docker run -d --name casino-backend --network casino-net \
@@ -424,7 +456,7 @@ docker run -d --name casino-backend --network casino-net \
   -e JWT_SECRET=dev -e CORS_ORIGIN="*" \
   -p 3000:3000 \
   casino-backend:dev
- 
+
 # 3) FRONTEND (Nginx con reverse proxy hacia 'casino-backend')
 docker build -t casino-frontend:dev frontend_intro_devops_casino
 docker run -d --name casino-frontend --network casino-net \
@@ -438,6 +470,7 @@ Verifiquen:
 - <http://localhost:8080> — casino visible.
 - <http://localhost:8080/health> — debe responder `{"status":"ok"}` (proxy → backend).
 - Login con `demo` / `demo1234`.
+
 Si **algo falla**, depurar acá. **No avancen** con problemas locales
 a la nube.
 
@@ -445,7 +478,7 @@ a la nube.
 # Ver logs si algo se cuelga
 docker logs -f casino-backend
 docker logs -f casino-frontend
- 
+
 # Limpiar al terminar
 docker rm -f casino-frontend casino-backend casino-db
 docker network rm casino-net
@@ -505,6 +538,7 @@ En la pantalla de Launch instance, sección **Key pair (login)**:
 - Click **Create key pair** → se descarga `casino-key.pem`.
 - Guárdenlo en `~/.ssh/casino-key.pem` (Mac/Linux) o
   `C:\Users\<usuario>\.ssh\casino-key.pem` (Windows).
+
 Ajustar permisos del archivo (sin esto, SSH lo rechaza por inseguro):
 
 ```bash
@@ -583,6 +617,7 @@ Asignen cada SG a su EC2 correspondiente:
 - `casino-frontend` → `SG-frontend`
 - `casino-backend`  → `SG-backend`
 - `casino-database` → `SG-database`
+
 (EC2 → seleccionar instancia → **Actions → Security → Change security
 groups** → quitar el default y agregar el correcto).
 
@@ -594,7 +629,7 @@ mismo:
 ```bash
 # Mac / Linux / Git Bash:
 ssh -i ~/.ssh/casino-key.pem ec2-user@<IP-publica>
- 
+
 # Dentro de la EC2:
 sudo dnf update -y
 sudo dnf install -y docker
@@ -635,7 +670,7 @@ Agreguen la **pública** a las 3 EC2 (una por una):
 ```bash
 # Mostrar la publica:
 cat ~/.ssh/gh-actions-key.pub
- 
+
 # Conectarse a cada EC2 y pegarla en authorized_keys:
 ssh -i ~/.ssh/casino-key.pem ec2-user@<IP-publica>
 echo "<aqui la linea ssh-ed25519 ... que copiaron>" >> ~/.ssh/authorized_keys
@@ -703,19 +738,19 @@ repository secret**.
 
 ```yaml
 name: Build & Deploy backend
- 
+
 on:
   workflow_dispatch:           # permite lanzarlo manual desde la pestana Actions
   push:
     branches: [ main ]
     paths-ignore: [ 'db/**' ]   # cambios solo en db/ no disparan este job
- 
+
 jobs:
   build-push-deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
- 
+
       - name: Configurar credenciales AWS (temporales del Learner Lab)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -723,13 +758,13 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region:            ${{ secrets.AWS_REGION }}
- 
+
       - name: Login a ECR
         id: ecr
         uses: aws-actions/amazon-ecr-login@v2
         with:
           mask-password: 'true'
- 
+
       - name: Build & push backend
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
@@ -738,7 +773,7 @@ jobs:
           docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .
           docker push $IMAGE:${{ github.sha }}
           docker push $IMAGE:latest
- 
+
       - name: Desplegar en EC2-backend
         uses: appleboy/ssh-action@v1
         env:
@@ -772,13 +807,13 @@ jobs:
 
 ```yaml
 name: Build & Deploy database
- 
+
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
     paths: [ 'db/**', '.github/workflows/deploy-db.yml' ]
- 
+
 jobs:
   build-push-deploy:
     runs-on: ubuntu-latest
@@ -794,7 +829,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
         with:
           mask-password: 'true'
- 
+
       - name: Build & push casino-db
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
@@ -803,7 +838,7 @@ jobs:
           docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest ./db
           docker push $IMAGE:${{ github.sha }}
           docker push $IMAGE:latest
- 
+
       - name: Desplegar en EC2-database
         uses: appleboy/ssh-action@v1
         env:
@@ -841,12 +876,12 @@ jobs:
 
 ```yaml
 name: Build & Deploy frontend
- 
+
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
- 
+
 jobs:
   build-push-deploy:
     runs-on: ubuntu-latest
@@ -862,7 +897,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
         with:
           mask-password: 'true'
- 
+
       - name: Build & push frontend
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
@@ -871,7 +906,7 @@ jobs:
           docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .
           docker push $IMAGE:${{ github.sha }}
           docker push $IMAGE:latest
- 
+
       - name: Desplegar en EC2-frontend
         uses: appleboy/ssh-action@v1
         env:
@@ -1052,9 +1087,11 @@ y vean correr `deploy-frontend.yml`. Cuando termine (~2–3 min),
 
 | Síntoma                                           | Causa                                            | Cómo resolver                                                  |
 |---------------------------------------------------|--------------------------------------------------|-----------------------------------------------------------------|
+| 🚨 **Veo "Welcome to nginx!" en lugar del casino** | El `COPY` del Dockerfile dejó la carpeta `browser/` adentro de `/usr/share/nginx/html/`, dejando intacto el `index.html` default. | El `COPY` debe ser `COPY --from=builder /app/dist/casino-frontend/browser/. /usr/share/nginx/html/` (con `/.` y `/` finales). Y antes hacer `RUN rm -rf /usr/share/nginx/html/*`. Verificar: `docker run --rm casino-frontend:dev ls /usr/share/nginx/html` debe mostrar `index.html` + `chunk-*.js`, **no** una carpeta `browser/`. |
 | Backend levanta pero `ECONNREFUSED` a la BD       | `DB_HOST` apunta mal o SG-database bloquea      | Usar **IP privada** de la BD; verificar SG-database             |
 | Frontend carga pero ningún botón funciona         | Reverse proxy mal configurado                   | Verificar `default.conf.template` y `BACKEND_HOST` en `docker run` |
 | `502 Bad Gateway` en el frontend                  | Nginx no puede llegar al backend (SG o IP)      | Comprobar IP privada y que el SG-backend permita el tráfico    |
+| Frontend no levanta: `host not found in upstream` | Falta `BACKEND_HOST` o tiene valor vacío        | Asegurarse de pasar `-e BACKEND_HOST=<ip>` al `docker run` (en local: nombre del contenedor; en EC2: IP privada del backend) |
 | Postgres no inicia el `init.sql` la 2ª vez        | Ya hay un `pg_data` con datos                   | En EC2-db: `docker volume rm pg_data` (⚠️ borra todo)           |
 | `port is already allocated` en EC2                | Contenedor anterior aún corriendo               | `docker rm -f <nombre>` antes de re-desplegar                   |
 | El frontend muestra el cambio pero el saldo es 0  | Cache del navegador                             | Refresh forzado: `Ctrl+Shift+R` / `Cmd+Shift+R`                 |
