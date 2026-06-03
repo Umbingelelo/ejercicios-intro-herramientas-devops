@@ -299,23 +299,34 @@ aws_session_token=IQoJb3JpZ2luX2VjE...=  (cadena muy larga)
 
 ### 2.3 Pega las credenciales en tu archivo de configuración (TERMINAL)
 
+El archivo donde van se llama `credentials` y vive en la carpeta oculta `.aws` de tu carpeta de usuario. La forma más cómoda de crearlo y editarlo es con **Visual Studio Code** (VS Code), porque te permite ver y pegar el bloque sin pelear con editores de terminal.
+
+**Recomendado: abrir el archivo con Visual Studio Code**
+
+Primero asegúrate de que el comando `code` esté disponible en tu terminal:
+
+- En **Windows**, el instalador de VS Code agrega `code` al PATH automáticamente (si no, reinstala marcando esa casilla).
+- En **macOS**, abre VS Code, presiona `Cmd+Shift+P`, escribe `Shell Command: Install 'code' command in PATH` y dale Enter (solo se hace una vez).
+
+Luego crea la carpeta y abre el archivo en VS Code:
+
 **macOS / Linux:**
 
 ```bash
 mkdir -p ~/.aws
-nano ~/.aws/credentials
+code ~/.aws/credentials
 ```
-
-> Borra el contenido anterior, pega el bloque completo que copiaste, guarda con `Ctrl+O`, `Enter`, y sal con `Ctrl+X`.
 
 **Windows (PowerShell):**
 
 ```powershell
 New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.aws" | Out-Null
-notepad "$env:USERPROFILE\.aws\credentials"
+code "$env:USERPROFILE\.aws\credentials"
 ```
 
-> Si el Bloc de notas pregunta si crear el archivo, di que Sí. Pega el bloque completo, guarda (`Ctrl+S`) y cierra.
+> VS Code abrirá el archivo (vacío si es nuevo). Borra cualquier contenido anterior, **pega el bloque completo** de 4 líneas que copiaste de AWS Details (las 3 claves bajo `[default]`), y guarda con `Ctrl+S` (en macOS, `Cmd+S`). Cierra la pestaña. Listo.
+
+**Alternativa sin VS Code** (por si no lo tienes instalado): en macOS/Linux usa `nano ~/.aws/credentials` (guardar con `Ctrl+O`, `Enter`, salir con `Ctrl+X`); en Windows usa `notepad "$env:USERPROFILE\.aws\credentials"` (si pregunta si crear el archivo, di que Sí; guarda con `Ctrl+S`).
 
 ### 2.4 Fija la región por defecto (TERMINAL)
 
@@ -465,7 +476,7 @@ Un clúster de EKS tiene dos mitades. AWS gestiona y cobra el **plano de control
          tu computador
 ```
 
-> Este paso (crear el plano de control) tarda 10–15 minutos en quedar `Active`. Es normal.
+> TEN PACIENCIA: crear el plano de control tarda normalmente 10–15 minutos en quedar `Active`, y en momentos de carga del lab puede demorar 20 minutos o más. Es completamente normal. NO canceles ni vuelvas a crear el clúster pensando que se colgó: refresca la página cada par de minutos y espera a que el estado pase a `Active`. Aprovecha esa espera para avanzar con el Paso 7 (crear los repositorios en ECR y subir las imágenes), que no depende de que el clúster esté listo.
 
 ### 4.2 Sobre el rol del clúster en AWS Academy
 
@@ -524,7 +535,7 @@ Los **nodos** son las máquinas EC2 donde realmente se ejecutan tus contenedores
    - **Configure remote access to nodes:** déjalo **desactivado** (no necesitamos SSH).
    - Haz clic en **Next**.
 7. En **Review and create**, haz clic en **Create**.
-8. Espera a que el estado del grupo de nodos pase de **Creating** a **Active** (3–5 minutos).
+8. Espera a que el estado del grupo de nodos pase de **Creating** a **Active**. Suele tardar 3–5 minutos, pero también puede demorar más mientras AWS arranca y registra las máquinas EC2. Ten paciencia y refresca; no lo borres ni lo recrees por impaciencia.
 
 > NOTA: 2 nodos coinciden con `replicas: 2` de cada deployment, suficiente para los 6 pods de la aplicación. Como las subredes tienen IP pública automática y ruta al Internet Gateway, los nodos podrán descargar las imágenes desde ECR sin NAT Gateway.
 
