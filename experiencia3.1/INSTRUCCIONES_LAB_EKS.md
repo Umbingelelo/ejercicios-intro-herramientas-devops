@@ -25,6 +25,26 @@ Este laboratorio te lleva por el ciclo completo de **llevar una aplicación de m
 9. Expuesto un servicio a Internet con un **LoadBalancer** y lo habrás probado con `curl`.
 10. **Eliminado todos los recursos** para no gastar el presupuesto del lab.
 
+### Mapa del laboratorio (qué herramienta usas en cada paso)
+
+Este lab combina dos entornos: la **consola de AWS** (navegador) para crear la infraestructura, y la **terminal** de tu computador para construir imágenes y operar el clúster. Este mapa te ubica:
+
+```
+   TERMINAL (tu computador)              CONSOLA DE AWS (navegador)
+   ------------------------              --------------------------
+   Paso 1  Clonar el repo
+   Paso 2  Copiar credenciales  ------>  (se copian desde "AWS Details")
+                                         Paso 3  Crear VPC + red
+                                         Paso 4  Crear clúster EKS
+                                         Paso 5  Crear grupo de nodos
+   Paso 6  Conectar kubectl     <------  (apunta al clúster recién creado)
+                                         Paso 7a Crear repos en ECR
+   Paso 7b Build y push de imágenes
+   Paso 8  Desplegar (kubectl apply) y verificar el DNS interno
+   Paso 9  Exponer con LoadBalancer y probar con curl
+   Paso 10 Borrar el LoadBalancer  +     Paso 10 Borrar nodos, clúster, ECR y VPC
+```
+
 ### La aplicación: una tienda online con 3 microservicios
 
 El repositorio es una arquitectura de microservicios sencilla (backend en Python + FastAPI). Son **3 servicios independientes** que se comunican por HTTP interno:
@@ -206,7 +226,7 @@ micro-servicios-k8s/
 Cada servicio (`products-service`, `inventory-service`, `orders-service`) tiene la misma estructura:
 
 - **`Dockerfile`** — la "receta" para empaquetar el servicio en una imagen. El de `products-service` parte de `python:3.12-slim`, instala dependencias, copia el código y arranca el servidor en su puerto. Cada servicio usa su propio puerto: 8001, 8002 y 8003.
-- **`k8s/deployment.yaml`** — le dice a Kubernetes qué imagen correr, cuántas réplicas (aquí `replicas: 2`) y cómo revisar la salud del pod (`/health`). Trae un marcador `<ACCOUNT_ID>` y `<REGION>` que reemplazaremos en el Paso 8.
+- **`k8s/deployment.yaml`** — le dice a Kubernetes qué imagen correr, cuántas **réplicas** (copias idénticas en ejecución; aquí `replicas: 2`) y cómo revisar la salud del **pod** mediante el endpoint `/health`. Un *pod* es la unidad mínima que ejecuta Kubernetes: uno o más contenedores corriendo juntos. Este archivo trae un marcador `<ACCOUNT_ID>` y `<REGION>` que reemplazaremos en el Paso 8.
 - **`k8s/service.yaml`** — crea un Service de tipo `ClusterIP` (visible solo dentro del clúster) para que los otros servicios lo encuentren por su nombre.
 
 > CONCEPTO CLAVE: dentro del `deployment.yaml` de `orders-service` verás variables de entorno apuntando a `http://products-service:8001` y `http://inventory-service:8002`. Esos nombres coinciden exactamente con el `name` de cada Service. Así es como un servicio "encuentra" a otro en Kubernetes: por DNS interno.
@@ -355,7 +375,7 @@ En la consola de AWS, arriba a la derecha, confirma que dice **N. Virginia (us-e
 3. Arriba, selecciona la opción **VPC and more** (crea la VPC y toda la red de una vez, mostrándote cada pieza).
 4. Completa así:
    - **Name tag auto-generation:** marca la casilla y escribe `vpc-microservicios`. AWS usará ese nombre como prefijo para todos los recursos.
-   - **IPv4 CIDR block:** deja `10.0.0.0/16` (te da ~65.000 direcciones, más que suficiente).
+   - **IPv4 CIDR block:** deja `10.0.0.0/16`. Un *CIDR* es la forma de escribir un rango de direcciones IP; `/16` reserva ~65.000 direcciones para tu red, más que suficiente.
    - **IPv6 CIDR block:** `No IPv6 CIDR block`.
    - **Tenancy:** `Default`.
    - **Number of Availability Zones (AZs):** `2`.
@@ -372,6 +392,33 @@ En la consola de AWS, arriba a la derecha, confirma que dice **N. Virginia (us-e
 > - 2 **subredes públicas** (`...-subnet-public1-us-east-1a` y `...-public2-us-east-1b`), una en cada AZ.
 > - 1 **Internet Gateway** (`...-igw`), conectado a la VPC.
 > - 1 **tabla de rutas pública** (`...-rtb-public`) con una ruta `0.0.0.0/0` hacia el Internet Gateway. Por eso son "públicas".
+
+Así se ve la red que acabas de crear (y dónde vivirán las piezas de los próximos pasos):
+
+```
+                              Internet
+                                 |
+                         +---------------+
+                         |   Internet    |   IGW: la "puerta" hacia Internet
+                         |   Gateway     |
+                         +-------+-------+
+                                 |
+              Tabla de rutas publica:  0.0.0.0/0  -->  IGW
+                                 |
+ +===============================|================================+
+ |  VPC  vpc-microservicios-vpc      CIDR 10.0.0.0/16             |
+ |                                                                |
+ |   AZ us-east-1a                        AZ us-east-1b           |
+ |   +--------------------------+   +--------------------------+  |
+ |   | Subred publica 1         |   | Subred publica 2         |  |
+ |   | IP publica automatica    |   | IP publica automatica    |  |
+ |   | tag role/elb = 1         |   | tag role/elb = 1         |  |
+ |   +--------------------------+   +--------------------------+  |
+ |                                                                |
+ |   Aqui se ubicaran:  los 2 nodos EC2 (Paso 5)                  |
+ |                      el Load Balancer publico (Paso 9)         |
+ +================================================================+
+```
 
 ### 3.4 Etiqueta las subredes para el LoadBalancer (CONSOLA)
 
@@ -403,7 +450,22 @@ Como los nodos irán en subredes públicas SIN NAT, necesitan recibir una IP pú
 
 El **clúster** es el "cerebro" de Kubernetes (el plano de control): la parte gestionada por AWS que coordina todo. Todavía no tiene máquinas para correr contenedores; esas las agregamos en el Paso 5.
 
-> Este paso tarda 10–15 minutos en quedar `Active`. Es normal.
+Un clúster de EKS tiene dos mitades. AWS gestiona y cobra el **plano de control**; tú gestionas el **plano de datos** (los nodos):
+
+```
+   PLANO DE CONTROL (lo gestiona AWS)            PLANO DE DATOS (tus nodos, Paso 5)
+   +-------------------------------+             +------------------------------+
+   |  Control Plane de EKS         |             |  Grupo de nodos (EC2)        |
+   |   - API server                | <-- API --> |   nodo 1  (t3.small)         |
+   |   - scheduler                 |             |   nodo 2  (t3.small)         |
+   |   - etcd (estado del cluster) |             |   (aqui corren los pods)     |
+   +-------------------------------+             +------------------------------+
+              ^
+              |  kubectl  (tus comandos, desde el Paso 6)
+         tu computador
+```
+
+> Este paso (crear el plano de control) tarda 10–15 minutos en quedar `Active`. Es normal.
 
 ### 4.2 Sobre el rol del clúster en AWS Academy
 
@@ -686,6 +748,23 @@ kubectl get svc
 
 > Verás `products-service`, `inventory-service` y `orders-service` como tipo `ClusterIP` (solo accesibles dentro del clúster por ahora).
 
+Esto es lo que acabas de desplegar dentro del clúster: 6 pods repartidos en los 2 nodos, y 3 Services que los agrupan y les dan un nombre DNS interno:
+
+```
+   +------------------- nodo 1 -------------------+   +------------------- nodo 2 -------------------+
+   |  pod products    pod inventory   pod orders  |   |  pod products    pod inventory   pod orders  |
+   +----------------------------------------------+   +----------------------------------------------+
+
+   Cada par de pods esta detras de un Service (ClusterIP) con su nombre DNS interno:
+
+       http://products-service:8001    -->  pods de products-service
+       http://inventory-service:8002   -->  pods de inventory-service
+       http://orders-service:8003      -->  pods de orders-service
+
+   orders-service llama a los otros DOS por esos NOMBRES (DNS interno), nunca por IP.
+   Por eso el codigo no cambia entre tu maquina y la nube: el nombre es siempre el mismo.
+```
+
 ### 8.4 Verifica la COMUNICACIÓN INTER-SERVICIO (el objetivo del lab)
 
 **(a) Resolución DNS desde dentro de un pod.** Le pedimos a un pod de `orders-service` que llame a `products-service` por su nombre:
@@ -733,6 +812,33 @@ curl.exe http://localhost:8003/orders
 Hasta ahora `orders-service` solo es accesible dentro del clúster. Para alcanzarlo desde Internet, creamos un Service de tipo **`LoadBalancer`**. En EKS, esto provisiona automáticamente un **Elastic Load Balancer** de AWS (un Classic Load Balancer) con una dirección pública, **sin instalar componentes adicionales**.
 
 > Por qué esto es ideal para AWS Academy: un Service `type: LoadBalancer` simple usa la integración nativa de EKS y NO requiere el AWS Load Balancer Controller (que necesita OIDC/IRSA, deshabilitado en el Learner Lab). Gracias a la etiqueta `kubernetes.io/role/elb` que pusiste en las subredes (Paso 3.4), AWS sabrá dónde colocar el balanceador.
+
+Este será el recorrido completo de una petición desde Internet hasta los 3 microservicios:
+
+```
+   Internet (tu navegador o curl)
+        |
+        |  http://<DNS-del-LoadBalancer>/orders   (puerto 80)
+        v
+   +----------------------------+
+   |  Classic Load Balancer     |   lo crea AWS al aplicar el Service type: LoadBalancer
+   +-------------+--------------+
+                 |  reenvia al puerto 8003
+                 v
+        +-------------------+
+        |  orders-service   |  (pods)
+        +----+---------+----+
+             |         |
+       DNS interno   DNS interno
+       :8001         :8002
+             v         v
+   +-----------------+  +-------------------+
+   | products-service|  | inventory-service |
+   +-----------------+  +-------------------+
+
+   De Internet solo se expone orders-service. products e inventory siguen siendo
+   ClusterIP (privados): solo se alcanzan desde dentro del cluster.
+```
 
 ### 9.2 Crea el manifiesto del LoadBalancer (TERMINAL)
 
@@ -939,7 +1045,7 @@ En el panel de AWS Academy, haz clic en **End Lab**.
 | `LabRole` no aparece al crear el clúster o el grupo de nodos | El permiso del Learner Lab puede variar. | Avísale a tu docente; puede requerir ajustes del lab. |
 | `kubectl` da `Unauthorized` / `You must be logged in to the server` | Conectaste con credenciales distintas a las que crearon el clúster. | Recopia las credenciales del lab (Paso 2) y repite `aws eks update-kubeconfig`. |
 | Pods en `ImagePullBackOff` / `ErrImagePull` | La imagen no existe en ECR, el Account ID/región del `deployment.yaml` está mal, o los nodos no tienen salida a Internet. | Revisa el Paso 8.1 (`grep image:`), que el Paso 7 subió las 3 imágenes, y que las subredes tienen IP pública automática (Paso 3.5). |
-| `EXTERNAL-IP` del LoadBalancer se queda en `<pending>` | Falta la etiqueta `kubernetes.io/role/elb=1` en las subredes públicas, o el balanceador tarda. | Verifica el Paso 3.4 y espera ~5 min. |
+| `EXTERNAL-IP` del LoadBalancer se queda en `<pending>` | Falta la etiqueta `kubernetes.io/role/elb=1` en las subredes públicas, o el balanceador tarda. | Verifica el Paso 3.4 y espera ~5 min. Si persiste, añade también a cada subred pública la etiqueta `kubernetes.io/cluster/microservicios-eks` con valor `shared`. |
 | `curl` al LoadBalancer da "connection refused" o cuelga | El balanceador aún no pasa sus health checks. | Espera 1–2 min más y reintenta. |
 | En PowerShell, `curl` se comporta raro (no acepta `-X`, devuelve HTML) | `curl` es un alias de `Invoke-WebRequest`. | Usa `curl.exe` (con la extensión). |
 | Los nodos no pasan a `Ready` | Subredes sin ruta a Internet, o sin IP pública. | Revisa que la tabla de rutas pública apunte al IGW y que las subredes auto-asignen IP pública (Paso 3). |
@@ -1011,6 +1117,58 @@ kubectl get svc orders-service-lb
 # --- Limpieza (terminal): borra el LoadBalancer; el resto se borra en la consola ---
 kubectl delete svc orders-service-lb
 ```
+
+---
+
+# 14. Glosario de términos
+
+Si alguna palabra del laboratorio no te quedó clara, búscala aquí.
+
+| Término | Qué significa |
+| --- | --- |
+| **AWS Academy / Learner Lab** | Entorno educativo de AWS con tiempo, presupuesto y permisos limitados. No es una cuenta normal de AWS. |
+| **Consola de AWS** | La interfaz web (navegador) para crear y administrar recursos de AWS con clics. |
+| **AWS CLI** | "Command Line Interface": herramienta para usar AWS escribiendo comandos en la terminal. |
+| **Credenciales temporales / `aws_session_token`** | Claves de acceso que caducan. AWS Academy las renueva cada vez que inicias el lab. |
+| **Región (`us-east-1`)** | Zona geográfica de centros de datos de AWS. En el lab solo funciona bien `us-east-1`. |
+| **AZ (Availability Zone)** | Zona de disponibilidad: un centro de datos aislado dentro de una región. Usar 2 AZ da tolerancia a fallos. |
+| **VPC (Virtual Private Cloud)** | Tu red privada y aislada dentro de AWS, donde viven tus recursos. |
+| **CIDR (`10.0.0.0/16`)** | Notación para describir un rango de direcciones IP. El número tras `/` indica cuántas direcciones abarca. |
+| **Subred (subnet)** | Una porción de la VPC ubicada en una AZ concreta. Puede ser pública (con salida a Internet) o privada. |
+| **Internet Gateway (IGW)** | El componente que conecta la VPC con Internet. |
+| **Tabla de rutas (route table)** | Reglas que indican hacia dónde se envía el tráfico de red (p. ej. `0.0.0.0/0 -> IGW`). |
+| **NAT Gateway** | Permite que subredes privadas salgan a Internet sin ser accesibles desde fuera. Cuesta dinero; en este lab NO lo usamos. |
+| **IAM / rol IAM** | Sistema de permisos de AWS. Un *rol* otorga permisos a un servicio o usuario. |
+| **`LabRole`** | Rol IAM pre-creado en AWS Academy con permisos amplios. Lo usamos porque el lab no deja crear roles. |
+| **`voclabs`** | La identidad (rol asumido) con la que actúas dentro de AWS Academy. |
+| **OIDC / IRSA** | Mecanismo para dar permisos AWS a pods individuales. Está deshabilitado en el lab; por eso usamos un LoadBalancer simple. |
+| **EKS (Elastic Kubernetes Service)** | El servicio gestionado de Kubernetes de AWS. |
+| **Kubernetes (k8s)** | Plataforma que orquesta (despliega, escala, reinicia) contenedores. |
+| **Plano de control (control plane)** | El "cerebro" del clúster (API server, scheduler, etc.). En EKS lo gestiona AWS. |
+| **Plano de datos / nodos** | Las máquinas EC2 donde corren tus contenedores. Tú las gestionas (grupo de nodos). |
+| **Nodo** | Una máquina (instancia EC2) que forma parte del clúster y ejecuta pods. |
+| **Grupo de nodos gestionado (Managed Node Group)** | Conjunto de nodos cuyo ciclo de vida administra AWS (parches, escalado). |
+| **`t3.small`** | Tipo de instancia EC2 pequeña (2 vCPU, 2 GB RAM). Económica, suficiente para el lab. |
+| **EC2** | "Elastic Compute Cloud": las máquinas virtuales de AWS. |
+| **Pod** | La unidad mínima de Kubernetes: uno o más contenedores que corren juntos en un nodo. |
+| **Réplica** | Cada copia idéntica de un pod en ejecución. `replicas: 2` significa 2 copias. |
+| **Deployment** | Objeto de Kubernetes que describe qué imagen correr y cuántas réplicas mantener. |
+| **Service** | Objeto de Kubernetes que da un nombre y una dirección estable a un grupo de pods. |
+| **ClusterIP** | Tipo de Service accesible SOLO dentro del clúster (privado). |
+| **LoadBalancer (tipo de Service)** | Tipo de Service que pide a AWS un balanceador con dirección pública para exponer pods a Internet. |
+| **DNS interno del clúster** | El sistema que permite a un servicio encontrar a otro por su nombre (p. ej. `products-service`) sin conocer su IP. |
+| **kubectl** | Herramienta de línea de comandos para dar órdenes al clúster de Kubernetes. |
+| **kubeconfig (`~/.kube/config`)** | Archivo que le dice a `kubectl` a qué clúster conectarse y cómo autenticarse. |
+| **manifiesto (YAML)** | Archivo de texto (`.yaml`) que describe un recurso de Kubernetes (deployment, service, etc.). |
+| **ECR (Elastic Container Registry)** | Registro privado de imágenes Docker dentro de tu cuenta AWS. |
+| **Imagen Docker** | Paquete que contiene la app y todo lo que necesita para ejecutarse. |
+| **Contenedor** | Una instancia en ejecución de una imagen. |
+| **Registro / repositorio** | El registro es el servidor de imágenes (ECR); un repositorio guarda las versiones de UNA imagen. |
+| **`latest` (tag)** | Etiqueta de versión de una imagen. `latest` suele apuntar a "la más reciente". |
+| **Classic Load Balancer (CLB)** | Tipo de balanceador de AWS que crea por defecto un Service `type: LoadBalancer` simple. |
+| **`curl`** | Herramienta de terminal para hacer peticiones HTTP. En PowerShell usa `curl.exe`. |
+| **`port-forward`** | Túnel temporal de `kubectl` desde un puerto de tu máquina hacia un Service del clúster. |
+| **CloudFormation** | Servicio de AWS que crea recursos a partir de plantillas (infraestructura como código). |
 
 ---
 
