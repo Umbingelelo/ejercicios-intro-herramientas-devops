@@ -154,6 +154,8 @@ A lo largo del laboratorio verás dos tipos de instrucciones:
 
 > AVISO CRÍTICO PARA WINDOWS: en PowerShell, `curl` NO es el curl real: es un alias del comando `Invoke-WebRequest`, que se comporta distinto. Por eso en este laboratorio usarás **`curl.exe`** (con la extensión `.exe`) cada vez que necesites `curl`. Eso fuerza a Windows a usar el curl de verdad, que se comporta igual que en macOS.
 
+> AVISO PARA ENVÍO DE JSON (peticiones `POST`): cuando una petición lleva un cuerpo JSON (los `POST /orders`), **NO lo escribas en línea** dentro del `curl`. Las comillas del JSON se rompen al pasar por el shell —especialmente en PowerShell, que destruye las comillas dobles aunque uses `\"`— y el servidor responde un **error de formato (HTTP 422)**. Por eso en este laboratorio guardamos el JSON en un archivo `order.json` y se lo pasamos a curl con **`-d @order.json`**: curl lee el archivo directamente y el cuerpo llega intacto, igual en macOS y en PowerShell.
+
 ---
 
 ## 4. Valores que usaremos
@@ -250,7 +252,8 @@ curl http://localhost:8001/health
 curl http://localhost:8002/health
 curl http://localhost:8003/health
 curl http://localhost:8003/config
-curl -X POST http://localhost:8003/orders -H "Content-Type: application/json" -d '{"product_id": 1, "quantity": 2}'
+echo '{"product_id": 1, "quantity": 2}' > order.json
+curl -X POST http://localhost:8003/orders -H "Content-Type: application/json" -d @order.json
 ```
 
 **Windows (PowerShell):**
@@ -260,7 +263,8 @@ curl.exe http://localhost:8001/health
 curl.exe http://localhost:8002/health
 curl.exe http://localhost:8003/health
 curl.exe http://localhost:8003/config
-curl.exe -X POST http://localhost:8003/orders -H "Content-Type: application/json" -d "{\"product_id\": 1, \"quantity\": 2}"
+'{"product_id": 1, "quantity": 2}' | Set-Content -Encoding ascii order.json
+curl.exe -X POST http://localhost:8003/orders -H "Content-Type: application/json" -d "@order.json"
 ```
 
 Para detener: vuelve a la primera terminal, presiona `Ctrl + C`, y luego `docker compose down`.
@@ -800,7 +804,8 @@ En la otra terminal:
 
 ```bash
 curl http://localhost:8003/config
-curl -X POST http://localhost:8003/orders -H "Content-Type: application/json" -d '{"product_id": 2, "quantity": 1}'
+echo '{"product_id": 2, "quantity": 1}' > order.json
+curl -X POST http://localhost:8003/orders -H "Content-Type: application/json" -d @order.json
 curl http://localhost:8003/orders
 ```
 
@@ -808,7 +813,8 @@ curl http://localhost:8003/orders
 
 ```powershell
 curl.exe http://localhost:8003/config
-curl.exe -X POST http://localhost:8003/orders -H "Content-Type: application/json" -d "{\"product_id\": 2, \"quantity\": 1}"
+'{"product_id": 2, "quantity": 1}' | Set-Content -Encoding ascii order.json
+curl.exe -X POST http://localhost:8003/orders -H "Content-Type: application/json" -d "@order.json"
 curl.exe http://localhost:8003/orders
 ```
 
@@ -960,7 +966,8 @@ Write-Host "Mi LoadBalancer esta en: http://$($env:LB_URL)"
 ```bash
 curl http://$LB_URL/health
 curl http://$LB_URL/config
-curl -X POST http://$LB_URL/orders -H "Content-Type: application/json" -d '{"product_id": 1, "quantity": 3}'
+echo '{"product_id": 1, "quantity": 3}' > order.json
+curl -X POST http://$LB_URL/orders -H "Content-Type: application/json" -d @order.json
 curl http://$LB_URL/orders
 ```
 
@@ -969,7 +976,8 @@ curl http://$LB_URL/orders
 ```powershell
 curl.exe "http://$($env:LB_URL)/health"
 curl.exe "http://$($env:LB_URL)/config"
-curl.exe -X POST "http://$($env:LB_URL)/orders" -H "Content-Type: application/json" -d "{\"product_id\": 1, \"quantity\": 3}"
+'{"product_id": 1, "quantity": 3}' | Set-Content -Encoding ascii order.json
+curl.exe -X POST "http://$($env:LB_URL)/orders" -H "Content-Type: application/json" -d "@order.json"
 curl.exe "http://$($env:LB_URL)/orders"
 ```
 
@@ -1059,6 +1067,7 @@ En el panel de AWS Academy, haz clic en **End Lab**.
 | `EXTERNAL-IP` del LoadBalancer se queda en `<pending>` | Falta la etiqueta `kubernetes.io/role/elb=1` en las subredes públicas, o el balanceador tarda. | Verifica el Paso 3.4 y espera ~5 min. Si persiste, añade también a cada subred pública la etiqueta `kubernetes.io/cluster/microservicios-eks` con valor `shared`. |
 | `curl` al LoadBalancer da "connection refused" o cuelga | El balanceador aún no pasa sus health checks. | Espera 1–2 min más y reintenta. |
 | En PowerShell, `curl` se comporta raro (no acepta `-X`, devuelve HTML) | `curl` es un alias de `Invoke-WebRequest`. | Usa `curl.exe` (con la extensión). |
+| El `POST /orders` devuelve un error de formato / `HTTP 422` (`JSON decode error`) | El cuerpo JSON en línea se rompió por las comillas del shell (típico en PowerShell, que descarta las comillas dobles aunque uses `\"`). | Usa el método de archivo: guarda el JSON en `order.json` y envíalo con `-d @order.json` (ya está aplicado en los Pasos 1.5, 8.4 y 9.5). |
 | Los nodos no pasan a `Ready` | Subredes sin ruta a Internet, o sin IP pública. | Revisa que la tabla de rutas pública apunte al IGW y que las subredes auto-asignen IP pública (Paso 3). |
 | No puedo borrar la VPC (tiene dependencias) | El LoadBalancer o los nodos aún existen. | Termina los Pasos 10.1–10.3 y reintenta. |
 
