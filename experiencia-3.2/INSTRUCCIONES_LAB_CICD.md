@@ -22,7 +22,7 @@ Al terminar habrás:
 2. Guardado tus credenciales de AWS Academy como **secrets** de GitHub.
 3. Creado un **workflow** (`.github/workflows/deploy.yml`) que automatiza build + push + deploy.
 4. Lanzado tu **primer despliegue automático** (la app tal como está).
-5. **Programado en Python** una ruta `/ready` (readiness) en `orders-service` (en `products` e `inventory` ya viene hecha, como ejemplo).
+5. **Programado en Python** una ruta `/ready` (readiness) que mide el **uso real de CPU y memoria** del servicio en `orders-service` (en `products` e `inventory` ya viene hecha, como ejemplo).
 6. Cambiado las *probes* de Kubernetes para usar `/ready` y lanzado un **segundo despliegue automático** con `git push`.
 7. Demostrado la diferencia entre *liveness* y *readiness* en la práctica.
 
@@ -110,9 +110,10 @@ Kubernetes vigila tus pods con dos tipos de *probes* (sondas), que llaman a una 
 
 Ejemplos de cuándo un pod está "vivo" pero "no listo":
 - Aún está calentando/cargando datos al arrancar.
-- Una dependencia de la que necesita (otra API, una base de datos) está caída.
+- Está sobrecargado: su uso real de CPU o memoria es tan alto que respondería mal.
+- Una dependencia que necesita (otra API, una base de datos) está caída.
 
-En este repo, la **liveness** ya está hecha: es el endpoint `GET /health` (devuelve `{"status": "ok", ...}`). Tu trabajo será crear la **readiness**: el endpoint `GET /ready`.
+En este repo, la **liveness** ya está hecha: es el endpoint `GET /health` (devuelve `{"status": "ok", ...}`). Tu trabajo será crear la **readiness** (`GET /ready`), que en este lab medirá el **uso real de recursos** del servicio (CPU y memoria).
 
 ---
 
@@ -347,85 +348,130 @@ kubectl get pods
 
 # PASO 5 — Programar la ruta de readiness (/ready) en Python
 
-Ahora la parte de programación. Vas a comparar la *liveness* (ya hecha) con la *readiness* (la harás tú).
+Ahora la parte de programación. Como quizá nunca hayas tocado un *backend* en Python, primero te explicamos lo mínimo para que sepas QUÉ escribes y DÓNDE. Luego verás 2 ejemplos ya resueltos y programarás el tercero.
 
-### 5.1 Parte A — Observa los ejemplos YA RESUELTOS
+### 5.1 Mini-introducción: cómo funciona un backend con FastAPI
 
-En `products-service` e `inventory-service` la ruta `/ready` **ya viene implementada**. Ábrelas y estúdialas: son tu modelo.
+Un *backend* es un programa que escucha peticiones por la red y responde. Estos microservicios usan **FastAPI**, una librería de Python para crear APIs. Solo necesitas entender tres ideas:
 
-`products-service/app/main.py` (junto al `/health` ya existente):
+1. **La aplicación.** Al inicio de cada `app/main.py` se crea la app (ya está hecho): `app = FastAPI(...)`.
+
+2. **Una ruta (endpoint) y su controlador.** Una *ruta* es una URL, por ejemplo `/health`. El *controlador* es la función que se ejecuta cuando alguien llama a esa ruta. Se conectan con un *decorador* (la línea que empieza con `@`). Mira el `/health` que ya existe, anotado:
+
+   ```python
+   @app.get("/health")        # RUTA: "cuando llegue un GET a /health..."
+   def health():              # CONTROLADOR: "...ejecuta esta funcion"
+       return {"status": "ok", "service": "products-service"}   # RESPUESTA (dict -> JSON)
+   ```
+
+   - `@app.get("/health")` significa "atiende peticiones GET a la ruta `/health`".
+   - La función de abajo (`health`) es el controlador: hace el trabajo y `return` la respuesta.
+   - Si devuelves un diccionario de Python, FastAPI lo convierte solo a **JSON**. No haces nada más.
+
+3. **Usar una librería extra.** Si necesitas una herramienta nueva (como `psutil`, que mide el uso real de CPU y memoria), haces dos cosas: (a) la importas arriba del archivo con `import psutil`, y (b) la agregas al `requirements.txt` del servicio para que se instale al construir la imagen.
+
+> En resumen, "programar una ruta" aquí es: escribir un decorador `@app.get("/loquesea")` y debajo una función que devuelva un diccionario. Eso es todo.
+
+### 5.2 Parte A — Observa los ejemplos YA RESUELTOS (products e inventory)
+
+Para que la readiness sea útil de verdad (y no aburrida), NO devolvemos siempre "listo": medimos el **uso real de memoria** del servicio con la librería `psutil` y decimos "no listo" si está demasiado alto. En `products-service` e `inventory-service` esto **ya viene hecho**. Estúdialo: es tu modelo.
+
+Arriba del archivo, junto a los otros `import`:
+
+```python
+import psutil   # libreria que lee el uso real de CPU y memoria de la maquina
+```
+
+Y el endpoint `/ready` (junto al `/health` que ya existe):
+
+`products-service/app/main.py`:
 
 ```python
 @app.get("/ready")
 def ready():
     """
-    Readiness: indica si el servicio esta LISTO para recibir trafico.
-    products-service no depende de ningun otro servicio (es una 'hoja'),
-    asi que en cuanto el proceso arranca ya esta listo.
+    Readiness: el servicio esta listo solo si NO esta saturado de memoria.
+    psutil.virtual_memory().percent devuelve el % de memoria usada (uso real).
     """
-    return {"ready": True, "service": "products-service"}
+    memoria_usada = psutil.virtual_memory().percent     # ej: 41.7
+    if memoria_usada > 90:                              # umbral: 90%
+        raise HTTPException(status_code=503, detail={"ready": False, "memoria_%": memoria_usada})
+    return {"ready": True, "memoria_%": memoria_usada, "service": "products-service"}
 ```
 
-`inventory-service/app/main.py`:
+`inventory-service/app/main.py` es idéntico (cambia solo el nombre del servicio en la respuesta).
 
-```python
-@app.get("/ready")
-def ready():
-    """Readiness: inventory-service no depende de nadie; siempre esta listo."""
-    return {"ready": True, "service": "inventory-service"}
-```
+> `products-service` e `inventory-service` ya traen `import psutil` arriba y la línea `psutil` en su `requirements.txt`. No tienes que tocarlos: son el ejemplo.
 
-> Fíjate en el patrón: es una función decorada con `@app.get("/ready")` que devuelve un diccionario (FastAPI lo convierte en JSON). La liveness (`/health`) y la readiness (`/ready`) son endpoints normales; lo especial es para qué los usa Kubernetes.
+### 5.3 Parte B — TU TAREA: programa /ready en orders-service
 
-### 5.2 Parte B — TU TAREA: implementa /ready en orders-service
+`orders-service` es el orquestador (el servicio más importante), así que su readiness será un poco más completa: además de la memoria, reporta el **uso de CPU**, y el umbral será **configurable** (se lee de una variable de entorno).
 
-`orders-service` es el orquestador: solo tiene sentido que reciba pedidos si **puede contactar a sus dependencias** (`products-service` e `inventory-service`). Por eso su readiness es más interesante que la de una hoja.
+**Lo que debes programar:**
 
-**Especificación de lo que debes programar (en `orders-service/app/main.py`):**
+1. En `orders-service/requirements.txt`, agrega una línea nueva con `psutil`.
+2. En `orders-service/app/main.py`, agrega `import psutil` arriba (junto a los otros `import`).
+3. En el mismo archivo, crea la ruta `GET /ready` con su controlador, que debe:
+   - leer el uso real de CPU con `psutil.cpu_percent(interval=0.1)`,
+   - leer el uso real de memoria con `psutil.virtual_memory().percent`,
+   - tomar el umbral máximo de memoria desde la variable de entorno `READY_MAX_MEM_PERCENT` (si no existe, usar `90`),
+   - devolver `{"ready": true, "cpu_%": ..., "memoria_%": ...}` si la memoria está por debajo del umbral,
+   - lanzar `HTTPException` con código **503** si la memoria supera el umbral.
 
-- Crea un endpoint `GET /ready`.
-- Debe intentar un `GET /health` a `products-service` y a `inventory-service`.
-- Si **ambos** responden con código 200, devuelve `{"ready": true, ...}` (código 200).
-- Si **alguno** falla o no responde, lanza un `HTTPException` con código **503** (no está listo).
+**Pistas:**
 
-**Pistas (todo lo que necesitas ya está en el archivo):**
+- `orders-service` ya importa `FastAPI`, `HTTPException` y `os`. Reutilízalos (no hace falta volver a importarlos).
+- Para leer una variable de entorno con valor por defecto: `os.getenv("READY_MAX_MEM_PERCENT", "90")`. Ojo: llega como texto, conviértelo a número con `float(...)`.
+- Devuelve un diccionario y FastAPI lo vuelve JSON solo.
+- Para el 503: `raise HTTPException(status_code=503, detail=...)`.
 
-- `orders-service` ya importa `httpx`, `FastAPI` y `HTTPException`.
-- Ya existen las variables `PRODUCTS_SERVICE_URL` e `INVENTORY_SERVICE_URL` (las usa `create_order`). Reutilízalas.
-- Mira cómo `create_order` hace `with httpx.Client(timeout=...) as client: client.get(...)`. Tu `/ready` hace algo parecido pero más simple.
-- Para devolver 503: `raise HTTPException(status_code=503, detail=...)`.
-
-Intenta resolverlo tú antes de mirar la solución.
+Intenta resolverlo antes de mirar la solución.
 
 <details>
 <summary>Solución de referencia (ábrela solo para comparar)</summary>
 
+En `orders-service/requirements.txt`, una línea nueva:
+
+```
+psutil
+```
+
+En `orders-service/app/main.py`, arriba con los demás `import`:
+
 ```python
+import psutil
+```
+
+Y el endpoint (junto a los otros `@app.get`):
+
+```python
+# Umbral de memoria configurable por variable de entorno (texto -> numero).
+READY_MAX_MEM_PERCENT = float(os.getenv("READY_MAX_MEM_PERCENT", "90"))
+
+
 @app.get("/ready")
 def ready():
     """
-    Readiness de orders-service (el orquestador).
-    orders solo esta LISTO si puede contactar a sus dos dependencias.
-    Si alguna no responde, devolvemos 503 y Kubernetes deja de enviarnos trafico.
+    Readiness de orders-service basada en el USO REAL de recursos.
+    Reporta CPU y memoria, y se declara "no listo" (503) si la memoria
+    supera el umbral, para que Kubernetes deje de mandarle trafico.
     """
-    dependencias = {}
-    with httpx.Client(timeout=2.0) as client:
-        for nombre, url in (("products", PRODUCTS_SERVICE_URL), ("inventory", INVENTORY_SERVICE_URL)):
-            try:
-                resp = client.get(f"{url}/health")
-                dependencias[nombre] = (resp.status_code == 200)
-            except httpx.RequestError:
-                dependencias[nombre] = False
-    if not all(dependencias.values()):
-        raise HTTPException(status_code=503, detail={"ready": False, "dependencias": dependencias})
-    return {"ready": True, "dependencias": dependencias}
+    cpu = psutil.cpu_percent(interval=0.1)         # % de CPU usado (uso real)
+    memoria = psutil.virtual_memory().percent      # % de memoria usada (uso real)
+    if memoria > READY_MAX_MEM_PERCENT:
+        raise HTTPException(
+            status_code=503,
+            detail={"ready": False, "cpu_%": cpu, "memoria_%": memoria, "umbral_%": READY_MAX_MEM_PERCENT},
+        )
+    return {"ready": True, "cpu_%": cpu, "memoria_%": memoria}
 ```
 
 </details>
 
-> Nota: el bloque `<details>...</details>` es HTML; en la vista de GitHub aparece como un desplegable "Solución de referencia". Si tu editor no lo despliega, simplemente lee el código que contiene.
+> Nota 1: `psutil` reporta el uso de CPU/memoria de la **máquina (nodo)** donde corre el pod; para este laboratorio eso es justo lo que queremos: números reales que cambian.
+> Nota 2: el bloque `<details>...</details>` es HTML; en GitHub se ve como un desplegable "Solución de referencia". Si tu editor no lo despliega, simplemente lee el código que contiene.
 
-### 5.3 Conecta tu /ready con Kubernetes (cambiar la readinessProbe)
+### 5.4 Conecta tu /ready con Kubernetes (cambiar la readinessProbe)
 
 Ahora mismo, en los 3 archivos `k8s/deployment.yaml`, la `readinessProbe` apunta a `/health`. Cámbiala a `/ready` en los **tres** servicios. Busca este bloque:
 
@@ -495,37 +541,39 @@ curl http://localhost:8003/ready
 curl.exe http://localhost:8003/ready
 ```
 
-> Debería responder `{"ready": true, "dependencias": {"products": true, "inventory": true}}`.
+> Debería responder algo como `{"ready": true, "cpu_%": 12.5, "memoria_%": 38.4}`. Los números variarán en cada llamada: son el uso real de la máquina.
 
 ---
 
 # PASO 7 (BONUS) — Demuestra la diferencia liveness vs. readiness
 
-Vamos a "romper" una dependencia a propósito y ver cómo la readiness de `orders-service` reacciona, sin que el pod se reinicie.
+Vamos a forzar que `orders-service` se declare "no listo" SIN romper el proceso, bajando su umbral de memoria con una variable de entorno. Así verás que un pod puede estar vivo pero fuera de tráfico.
 
-1. Apaga `products-service` poniéndolo en 0 réplicas:
+1. Baja el umbral de memoria a 1 %. Como el uso real de memoria del nodo casi siempre es mayor, la readiness `/ready` empezará a devolver 503:
 
 ```bash
-kubectl scale deployment/products-service --replicas=0
+kubectl set env deployment/orders-service READY_MAX_MEM_PERCENT=1
 ```
 
-2. Espera ~15 segundos y mira los pods:
+> `kubectl set env` cambia la configuración del deployment y hace un redespliegue rápido con la nueva variable. No tocas el código ni el pipeline.
+
+2. Espera ~30 segundos y mira los pods:
 
 ```bash
 kubectl get pods
 ```
 
-> Verás que los pods de `orders-service` pasan a `READY 0/1` (NotReady), pero siguen `Running`: NO se reiniciaron (la liveness `/health` de orders sigue OK; es la readiness `/ready` la que falla porque no alcanza a products). Kubernetes deja de enviarles tráfico.
+> Verás que los pods de `orders-service` quedan en `READY 0/1` (NotReady) pero siguen `Running`: NO entran en reinicio continuo. La liveness `/health` sigue OK (por eso no se reinician); es la readiness `/ready` la que falla. Kubernetes deja de enviarles tráfico.
 
-3. Vuelve a encender products:
+3. Devuelve el umbral a un valor normal:
 
 ```bash
-kubectl scale deployment/products-service --replicas=2
+kubectl set env deployment/orders-service READY_MAX_MEM_PERCENT=90
 ```
 
 4. En ~30 segundos, los pods de `orders-service` vuelven a `READY 1/1`.
 
-> Esto es exactamente para lo que sirve la readiness: evitar mandar tráfico a un pod que, aunque esté vivo, no puede atender bien las peticiones. Cuando termines, deja products en 2 réplicas.
+> Esto es justo para lo que sirve la readiness: sacar de tráfico a un pod que, aunque esté vivo, no está en condiciones de atender bien (aquí lo simulamos con un umbral bajo; en la realidad sería un pod saturado de memoria). Compáralo con la liveness: si en cambio fallara `/health`, Kubernetes REINICIARÍA el pod.
 
 ---
 
@@ -550,7 +598,7 @@ El clúster EKS, los nodos y cualquier LoadBalancer **siguen facturando** mientr
 | `error: You must be logged in to the server (Unauthorized)` en `kubectl` | El clúster fue creado por una cuenta de lab distinta a la de los secrets, o el clúster no existe. | Usa los secrets del MISMO lab donde creaste el clúster; confirma que el clúster `microservicios-eks` está `Active`. |
 | `repository ... does not exist` o fallo al `update-kubeconfig` | El clúster o el nombre no coinciden. | Verifica `CLUSTER_NAME: microservicios-eks` y la región `us-east-1` en el workflow. |
 | Pods en `ImagePullBackOff` | Los nodos no pudieron descargar la imagen. | Confirma que el paso 4 (push) terminó OK y que las subredes de los nodos tienen salida a Internet (Actividad 3.1, Paso 3). |
-| `rollout status` se queda esperando `orders-service` | La readiness de orders no alcanza a sus dependencias (products/inventory aún no listos, o tu `/ready` tiene un error). | Revisa `kubectl get pods` y `kubectl logs <pod-orders>`; verifica tu código de `/ready`. |
+| `rollout status` se queda esperando `orders-service` | Tu `/ready` tiene un error, falta `psutil` en `requirements.txt`, o el umbral quedó demasiado bajo y devuelve 503. | Revisa `kubectl get pods`, `kubectl logs <pod-orders>` y `kubectl describe pod <pod-orders>`; confirma que agregaste `psutil` al `requirements.txt` y que `READY_MAX_MEM_PERCENT` es razonable (p. ej. 90). |
 | Error de sintaxis del workflow ("Invalid workflow file") | El YAML está mal indentado. | El YAML usa espacios (no tabuladores) y respeta la indentación. Copia el bloque del Paso 3.2 tal cual. |
 
 ---
@@ -561,9 +609,9 @@ El clúster EKS, los nodos y cualquier LoadBalancer **siguen facturando** mientr
 - [ ] **Paso 2:** Creé los 3 secrets (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`).
 - [ ] **Paso 3:** Creé `.github/workflows/deploy.yml`.
 - [ ] **Paso 4:** El primer push lanzó el workflow y terminó en verde; veo 6 pods `Running`.
-- [ ] **Paso 5:** Programé `/ready` en `orders-service` (verifica dependencias) y cambié la `readinessProbe` a `/ready` en los 3 deployment.yaml.
-- [ ] **Paso 6:** El segundo push redesplegó automáticamente; `curl .../ready` responde `ready: true`.
-- [ ] **Paso 7 (bonus):** Al escalar products a 0, los pods de orders quedan `0/1` (NotReady) sin reiniciarse, y se recuperan al volver products.
+- [ ] **Paso 5:** Programé `/ready` en `orders-service` (mide el uso real de CPU y memoria, con umbral configurable), agregué `psutil` a su `requirements.txt`, y cambié la `readinessProbe` a `/ready` en los 3 deployment.yaml.
+- [ ] **Paso 6:** El segundo push redesplegó automáticamente; `curl .../ready` responde `ready: true` con `cpu_%` y `memoria_%`.
+- [ ] **Paso 7 (bonus):** Al bajar `READY_MAX_MEM_PERCENT` a 1, los pods de orders quedan `0/1` (NotReady) sin entrar en reinicio, y se recuperan al volver el umbral a 90.
 
 ---
 
@@ -586,6 +634,11 @@ El clúster EKS, los nodos y cualquier LoadBalancer **siguen facturando** mientr
 | **Liveness (`/health`)** | Sonda que pregunta si el proceso está vivo; si falla, el pod se reinicia. |
 | **Readiness (`/ready`)** | Sonda que pregunta si el pod puede recibir tráfico; si falla, se le quita el tráfico (no se reinicia). |
 | **Probe (sonda)** | Chequeo periódico que Kubernetes hace a una URL de tu app. |
+| **Ruta / endpoint** | Una URL que tu backend atiende (p. ej. `/ready`). |
+| **Controlador (handler)** | La función de Python que se ejecuta cuando se llama a una ruta. |
+| **FastAPI** | Librería de Python para crear APIs; conecta rutas y controladores con decoradores `@app.get(...)`. |
+| **psutil** | Librería de Python que lee el uso real de CPU y memoria de la máquina. |
+| **Variable de entorno** | Valor de configuración que se inyecta al contenedor sin tocar el código (p. ej. `READY_MAX_MEM_PERCENT`). |
 | **OIDC** | Método moderno (sin claves) para que GitHub se autentique en AWS. Deshabilitado en AWS Academy. |
 
 ---
